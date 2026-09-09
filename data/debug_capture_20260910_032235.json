@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "run_id": "debug_capture_20260910_032235",
+  "label": "empty",
+  "classification": {
+    "item": "empty",
+    "category": "empty",
+    "environment_label": "empty",
+    "description": "empty environment"
+  },
+  "duration_ms": 5000,
+  "rate_hz": 10,
+  "channel": 11,
+  "transmitter_port": "COM3",
+  "receiver_port": "COM4",
+  "transmitter_baud": 115200,
+  "receiver_baud": 921600,
+  "started_at": "2026-09-09T19:22:35.258589+00:00",
+  "command_sent_at": "2026-09-09T19:22:58.437425+00:00",
+  "finished_at": "2026-09-09T19:23:05.528569+00:00",
+  "samples": 52,
+  "transmitter_log": [
+    "BURST_START,duration_ms=5000,rate_hz=10",
+    "BURST_END,packets=50,success=50,fail=0"
+  ],
+  "receiver_connected": true,
+  "receiver_log": [
+    "================ CSI RECV ================"
+  ],
+  "transmitter_packets": 50,
+  "complete": true,
+  "raw_data_stored": true,
+  "capture_status": "success"
+}

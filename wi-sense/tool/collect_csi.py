@@ -20,7 +20,7 @@ def parse_args():
 
 def collect(port_name, output_path, log_path, baud_rate):
     output_path = Path(output_path)
-    log_path = Path(log_path)
+    log_path = Path(log_path) if log_path is not None else Path(output_path).with_suffix(".log")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -81,7 +81,7 @@ def collect(port_name, output_path, log_path, baud_rate):
 
 def main():
     args = parse_args()
-    log_path = args.log or Path(args.output).with_suffix(".log")
+    log_path = args.log if args.log is not None else Path(args.output).with_suffix(".log")
     try:
         collect(args.port, args.output, log_path, args.baud)
     except serial.SerialException as error:

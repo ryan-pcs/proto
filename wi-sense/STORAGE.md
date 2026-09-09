@@ -4,38 +4,38 @@ This is the storage format for the prototype. It is ready for future identificat
 
 ## Where files go
 
-The HTML viewer uses two places:
-
-1. **Downloads folder**: exported `.csv` and `.json` files.
-2. **Browser-local storage**: a local IndexedDB copy shown in the Dataset storage panel.
-
-The browser-local copy is not a GitHub backup. Keep the downloaded files as the durable dataset.
-
-Recommended local folder:
+The current terminal panel and `collect_burst.py` write to the `data` folder
+under the current workspace directory:
 
 ```text
-wi-sense/tool/data/
+proto/data/
 ```
 
-Organize files by label:
+The browser viewer is legacy. If it is used, browser downloads and browser-local
+storage are separate from the terminal collector. Keep downloaded files as the
+durable dataset.
+
+Example files in the current flat output folder:
 
 ```text
-wi-sense/tool/data/
-  empty/
-  metal/
-  non_metal/
+proto/data/
+  empty_20260910_120000.csv
+  empty_20260910_120000.json
 ```
 
 Example run:
 
 ```text
-wi-sense/tool/data/metal/metal_001.csv
-wi-sense/tool/data/metal/metal_001.json
+  proto/data/metal_001_20260910_120000.csv
+  proto/data/metal_001_20260910_120000.json
 ```
 
 ## CSV file
 
-The CSV contains the raw receiver `CSI_DATA` rows. Do not edit the raw data manually. A run with zero rows is invalid for training.
+The CSV contains complete receiver `CSI_DATA` rows. The collector lightly
+parses serial lines into CSV columns, but it does not filter, smooth, normalize,
+or classify CSI values. Do not edit raw data manually. A run with zero rows is
+invalid for training.
 
 ## JSON file
 
@@ -43,16 +43,15 @@ The JSON describes the conditions for the matching CSV file:
 
 ```json
 {
-  "collection_name": "metal_001",
+  "run_id": "metal_001_20260910_120000",
   "label": "metal",
-  "mode": "collect",
-  "environment": "control_room_01",
-  "distance_cm": 100,
   "duration_ms": 5000,
   "rate_hz": 50,
   "channel": 11,
   "samples": 250,
-  "notes": "metal plate centered between boards"
+  "transmitter_packets": 250,
+  "raw_data_stored": true,
+  "capture_status": "success"
 }
 ```
 
@@ -63,6 +62,7 @@ Required checks before keeping a run:
 - The transmitter and receiver positions did not change.
 - The environment, distance, rate, and duration are recorded.
 - The CSV and JSON names match.
+- `raw_data_stored` is `true` and `capture_status` is `success`.
 
 ## Current labels
 
@@ -74,7 +74,8 @@ The label is the answer provided by the person collecting the data. It is needed
 
 ## Identification status
 
-The current system does not have a trained model. The Identify mode is only a prepared interface and must show:
+The current system does not have a trained model. The Identify mode is only a
+prepared interface and must show:
 
 ```text
 MODEL NOT TRAINED

@@ -22,10 +22,13 @@
 #include "rom/ets_sys.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
-#include "esp_now.h"
 #include "driver/uart.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL   11
+#define CSI_TX_SSID                         "CSI_TX"
+#define CSI_TX_PASSWORD                     "csi12345"
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || (CONFIG_IDF_TARGET_ESP32C6 && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0))
 #define CONFIG_WIFI_BAND_MODE               WIFI_BAND_MODE_2G_ONLY
 #define CONFIG_WIFI_2G_BANDWIDTHS           WIFI_BW_HT40
@@ -52,17 +55,45 @@
 #define ESP_IF_WIFI_STA ESP_MAC_WIFI_STA
 #endif
 
-static const uint8_t CONFIG_CSI_SEND_MAC[] = {0xc6, 0x96, 0xce, 0x25, 0xa0, 0x09};
 static const char *TAG = "csi_recv";
+static volatile bool wifi_connected = false;
+
+static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
+{
+    (void)arg;
+    (void)event_data;
+    if (event_base != WIFI_EVENT) {
+        return;
+    }
+
+    if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_connected = false;
+        esp_wifi_connect();
+    } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
+        wifi_connected = true;
+        ets_printf("WiFi connected to %s\n", CSI_TX_SSID);
+    }
+}
 
 static void wifi_init()
 {
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(esp_netif_init());
+    esp_netif_create_default_wifi_sta();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = CSI_TX_SSID,
+            .password = CSI_TX_PASSWORD,
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
 
 #if CONFIG_IDF_TARGET_ESP32C5
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -115,13 +146,7 @@ static void wifi_init()
     }
 #endif
 
-}
-
-static void wifi_esp_now_init(esp_now_peer_info_t peer)
-{
-    ESP_ERROR_CHECK(esp_now_init());
-    ESP_ERROR_CHECK(esp_now_set_pmk((uint8_t *)"pmk1234567890123"));
-    ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+    ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
 static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
@@ -129,15 +154,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     static int rejected_count = 0;
 
     if (!info || !info->buf) {
-        ets_printf("CSI callback received invalid data\n");
-        return;
-    }
-
-    if (memcmp(info->mac, CONFIG_CSI_SEND_MAC, 6)) {
-        if (rejected_count < 5) {
-            ets_printf("Ignored CSI source: " MACSTR "\n", MAC2STR(info->mac));
-            rejected_count++;
-        }
+        ets_printf("CSI_INVALID,count=%d\n", ++rejected_count);
         return;
     }
 
@@ -207,7 +224,9 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 
 static void wifi_csi_init()
 {
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
+    esp_err_t result = esp_wifi_set_promiscuous(true);
+    ets_printf("PROMISCUOUS,result=%s\n", esp_err_to_name(result));
+    ESP_ERROR_CHECK(result);
 
     /**< default config */
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
@@ -253,9 +272,15 @@ static void wifi_csi_init()
         .shift             = false,
     };
 #endif
-    ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
-    ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(wifi_csi_rx_cb, NULL));
-    ESP_ERROR_CHECK(esp_wifi_set_csi(true));
+    result = esp_wifi_set_csi_config(&csi_config);
+    ets_printf("CSI_CONFIG,result=%s\n", esp_err_to_name(result));
+    ESP_ERROR_CHECK(result);
+    result = esp_wifi_set_csi_rx_cb(wifi_csi_rx_cb, NULL);
+    ets_printf("CSI_CALLBACK,result=%s\n", esp_err_to_name(result));
+    ESP_ERROR_CHECK(result);
+    result = esp_wifi_set_csi(true);
+    ets_printf("CSI_ENABLE,result=%s\n", esp_err_to_name(result));
+    ESP_ERROR_CHECK(result);
 }
 
 void receiver_init()
@@ -278,23 +303,14 @@ void receiver_init()
      */
     wifi_init();
     ets_printf("WiFi ready on channel %d, HT20\n", CONFIG_LESS_INTERFERENCE_CHANNEL);
-
-    /**
-     * @brief Initialize ESP-NOW
-     *        ESP-NOW protocol see: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_now.html
-     */
-
-    esp_now_peer_info_t peer = {
-        .channel   = CONFIG_LESS_INTERFERENCE_CHANNEL,
-        .ifidx     = WIFI_IF_STA,
-        .encrypt   = false,
-        .peer_addr = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-    };
-
-    wifi_esp_now_init(peer);
-    ets_printf("ESP-NOW ready\n");
+    for (int attempt = 0; attempt < 100 && !wifi_connected; attempt++) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (!wifi_connected) {
+        ets_printf("WIFI_CONNECT_TIMEOUT,ssid=%s\n", CSI_TX_SSID);
+    }
 
     wifi_csi_init();
-    ets_printf("CSI ready; waiting for source " MACSTR "\n", MAC2STR(CONFIG_CSI_SEND_MAC));
+    ets_printf("CSI ready; waiting for UDP traffic from %s\n", CSI_TX_SSID);
 }
 

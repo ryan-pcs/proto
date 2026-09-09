@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "run_id": "second_try_20260910_015332",
+  "label": "empty",
+  "classification": {
+    "item": "empty",
+    "category": "empty",
+    "environment_label": "empty",
+    "description": "empty environment"
+  },
+  "duration_ms": 10000,
+  "rate_hz": 1000,
+  "channel": 11,
+  "transmitter_port": "COM3",
+  "receiver_port": "COM4",
+  "baud": 115200,
+  "started_at": "2026-09-09T17:53:32.581094+00:00",
+  "command_sent_at": "2026-09-09T17:53:32.719674+00:00",
+  "finished_at": "2026-09-09T17:53:44.768641+00:00",
+  "samples": 0,
+  "transmitter_log": [
+    "BURST_START,duration_ms=10000,rate_hz=1000",
+    "BURST_END,packets=9999"
+  ],
+  "receiver_connected": true,
+  "receiver_log": [],
+  "transmitter_packets": 9999,
+  "complete": true,
+  "raw_data_stored": false,
+  "capture_status": "no_csi_received"
+}

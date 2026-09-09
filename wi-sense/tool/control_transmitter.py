@@ -7,7 +7,7 @@ import serial
 from serial.tools import list_ports
 
 
-MAX_SECONDS = 10
+MAX_SECONDS = 60
 MAX_RATE_HZ = 1000
 
 
@@ -34,14 +34,17 @@ def send_command(port, command, timeout):
     port.write((command + "\n").encode("ascii"))
     port.flush()
     deadline = time.monotonic() + timeout
+    out = []
     while time.monotonic() < deadline:
         line = port.readline()
         if line:
             text = line.decode("utf-8", errors="replace").strip()
             if text:
                 print(text, flush=True)
+                out.append(text)
                 if text.startswith(("BURST_END", "BURST_STOPPED", "STATUS,")):
-                    return
+                    return out
+    return out
 
 
 def main():

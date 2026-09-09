@@ -1,0 +1,10 @@
+Collecting CSI |  0.0/5.0s | samples=0Collecting CSI /  0.6/5.0s | samples=8Collecting CSI -  1.1/5.0s | samples=13Collecting CSI \  1.6/5.0s | samples=19Collecting CSI |  2.1/5.0s | samples=24Collecting CSI /  2.7/5.0s | samples=29Collecting CSI -  3.2/5.0s | samples=34Collecting CSI \  3.7/5.0s | samples=39Collecting CSI |  4.2/5.0s | samples=45Collecting CSI /  4.8/5.0s | samples=50Collecting CSI -  5.0/5.0s | samples=52Collecting CSI \  5.0/5.0s | samples=52Collecting CSI |  5.0/5.0s | samples=52
+
+=== COLLECTION RESULT ===
+Label: empty (empty environment)
+Transmitter packets: 50
+Receiver CSI samples: 52
+Burst complete: yes
+Capture status: success
+CSV saved: data\debug_capture_20260910_032235.csv
+Metadata saved: data\debug_capture_20260910_032235.json
