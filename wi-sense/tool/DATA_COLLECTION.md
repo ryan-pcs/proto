@@ -9,6 +9,48 @@ The repository does not currently contain captured CSI data. The Python viewer r
 - Record the board roles, board models, COM ports, date, room, distance, and activity for each run.
 - Choose a fixed distance and keep the receiver orientation consistent.
 
+## Start a labeled burst
+
+The transmitter accepts commands over its USB serial port. The collector sends a
+fixed-duration burst command, records the receiver's raw `CSI_DATA` rows, and
+writes one CSV file plus one JSON metadata file.
+
+Use one of the three labels `empty`, `metal`, or `non_metal`:
+
+```powershell
+python .\collect_burst.py --transmitter COM3 --receiver COM4 --label empty --duration-ms 5000 --rate-hz 100 --run-id empty_001
+```
+
+The same command works for the other classes:
+
+```powershell
+python .\collect_burst.py --transmitter COM3 --receiver COM4 --label metal --run-id metal_001
+python .\collect_burst.py --transmitter COM3 --receiver COM4 --label non_metal --run-id non_metal_001
+```
+
+The transmitter command protocol is also available for manual testing:
+
+```text
+START 5000 100
+STATUS
+STOP
+```
+
+`START` means duration in milliseconds followed by packets per second. This is
+packet rate, not the Wi-Fi radio channel. The current channel is 11.
+
+Each run produces files like:
+
+```text
+data/metal_001.csv
+data/metal_001.json
+```
+
+The CSV preserves the raw CSI values. The JSON records the label, duration,
+rate, channel, ports, timestamps, sample count, and transmitter log so the
+dataset can later be converted into machine-learning features without losing
+the original measurements.
+
 ## Start a recording
 
 From the `tool` directory, run the viewer with a unique output name:
