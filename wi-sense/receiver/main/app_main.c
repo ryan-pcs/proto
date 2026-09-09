@@ -25,6 +25,7 @@
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lwip/ip4_addr.h"
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL   11
 #define CSI_TX_SSID                         "CSI_TX"
@@ -57,6 +58,12 @@
 
 static const char *TAG = "csi_recv";
 static volatile bool wifi_connected = false;
+static esp_netif_t *wifi_netif = NULL;
+
+bool receiver_is_connected(void)
+{
+    return wifi_connected;
+}
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
@@ -79,7 +86,10 @@ static void wifi_init()
 {
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(esp_netif_init());
-    esp_netif_create_default_wifi_sta();
+    wifi_netif = esp_netif_create_default_wifi_sta();
+    if (!wifi_netif) {
+        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    }
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
@@ -94,6 +104,13 @@ static void wifi_init()
         },
     };
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+
+    esp_netif_ip_info_t ip_info;
+    IP4_ADDR(&ip_info.ip, 192, 168, 4, 2);
+    IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
+    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+    ESP_ERROR_CHECK(esp_netif_dhcpc_stop(wifi_netif));
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(wifi_netif, &ip_info));
 
 #if CONFIG_IDF_TARGET_ESP32C5
     ESP_ERROR_CHECK(esp_wifi_start());

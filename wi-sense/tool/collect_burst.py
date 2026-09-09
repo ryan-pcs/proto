@@ -72,6 +72,7 @@ def open_receiver(port_name, requested_baud):
         startup = b""
         saw_connected = False
         saw_ready = False
+        saw_heartbeat = False
         deadline = time.monotonic() + RECEIVER_STARTUP_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             chunk = receiver.read(min(receiver.in_waiting, 1024) or 1)
@@ -79,12 +80,10 @@ def open_receiver(port_name, requested_baud):
                 startup += chunk
             saw_connected = saw_connected or b"WiFi connected to CSI_TX" in startup
             saw_ready = saw_ready or b"CSI ready" in startup
-            if saw_connected and saw_ready:
+            saw_heartbeat = saw_heartbeat or b"RECEIVER_READY" in startup
+            if saw_heartbeat or (saw_connected and saw_ready):
                 receiver.reset_input_buffer()
                 return receiver, baud
-        if baud == 921600:
-            receiver.reset_input_buffer()
-            return receiver, baud
         receiver.close()
     raise RuntimeError("receiver did not connect to CSI_TX at 921600 or 115200 baud")
 
@@ -217,16 +216,18 @@ def collect(args):
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     failed_capture = valid_count == 0
     if failed_capture:
-        csv_path.unlink(missing_ok=True)
-        metadata_path.unlink(missing_ok=True)
+        archive_dir = output_dir / "archive" / "empty_runs"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        csv_path.replace(archive_dir / csv_path.name)
+        metadata_path.replace(archive_dir / metadata_path.name)
     box_lines = [
         f"Label: {args.label} ({metadata['classification']['description']})",
         f"Transmitter packets: {transmitter_packets}",
         f"Receiver CSI samples: {valid_count}",
         f"Burst complete: {'yes' if burst_end_seen else 'no'}",
         f"Capture status: {metadata['capture_status']}",
-        f"CSV saved: {csv_path}" if not failed_capture else "Failed files removed: yes",
-        f"Metadata saved: {metadata_path}" if not failed_capture else "Metadata saved: no",
+        f"CSV saved: {csv_path}" if not failed_capture else "Failed files archived: yes",
+        f"Metadata saved: {metadata_path}" if not failed_capture else "Archive: {archive_dir}",
     ]
     print("\n=== COLLECTION RESULT ===")
     print("\n".join(box_lines))

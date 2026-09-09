@@ -29,6 +29,7 @@ from pyqtgraph import ScatterPlotItem
 from PyQt5.QtCore import pyqtSignal, QThread
 import threading
 import time
+from pathlib import Path
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 from scipy.stats import linregress
@@ -52,6 +53,34 @@ agc_gain_data = np.zeros([CSI_DATA_INDEX], dtype=np.float64)
 fft_gain_data = np.zeros([CSI_DATA_INDEX], dtype=np.float64)
 fft_gains = []
 agc_gains = []
+
+
+def load_csv_data(csv_path):
+    """Load stored CSI rows into the same buffers used by the live graph."""
+    colors = []
+    with Path(csv_path).open(newline='', encoding='utf-8') as csv_file:
+        for row in csv.DictReader(csv_file):
+            try:
+                raw_data = json.loads(row['data'])
+            except (KeyError, json.JSONDecodeError, TypeError):
+                continue
+
+            csi_data_complex[:-1] = csi_data_complex[1:]
+            csi_data_complex[-1] = 0
+            value_count = min(len(raw_data) // 2, CSI_DATA_COLUMNS)
+            for index in range(value_count):
+                csi_data_complex[-1][index] = complex(
+                    raw_data[index * 2 + 1], raw_data[index * 2]
+                )
+
+            if not colors and value_count:
+                colors = generate_subcarrier_colors(
+                    (0, value_count // 2),
+                    (value_count // 2 + 1, value_count - 1),
+                    None,
+                    value_count,
+                )
+    return colors
 
 class csi_data_graphical_window(QWidget):
     def __init__(self):
@@ -187,9 +216,9 @@ def generate_subcarrier_colors(red_range, green_range, yellow_range, total_num,i
     return colors
 
 
-def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
+def csi_data_read_parse(port: str, csv_writer, log_file_fd, callback=None, baudrate=921600):
     global fft_gains, agc_gains
-    set = serial.Serial(port=port, baudrate=115200,bytesize=8, parity='N', stopbits=1)
+    set = serial.Serial(port=port, baudrate=baudrate, bytesize=8, parity='N', stopbits=1)
     count =0
     header_written = False
     if set.isOpen():
@@ -305,19 +334,27 @@ def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
 
 class SubThread (QThread):
     data_ready = pyqtSignal(object)
-    def __init__(self, serial_port, save_file_name, log_file_name):
+    def __init__(self, serial_port, save_file_name, log_file_name, baudrate):
         super().__init__()
         self.serial_port = serial_port
+        self.baudrate = baudrate
 
-        save_file_fd = open(save_file_name, 'w')
+        self.save_file_fd = open(save_file_name, 'w', newline='')
         self.log_file_fd = open(log_file_name, 'w')
-        self.csv_writer = csv.writer(save_file_fd)
+        self.csv_writer = csv.writer(self.save_file_fd)
 
     def run(self):
-        csi_data_read_parse(self.serial_port, self.csv_writer, self.log_file_fd,callback=self.data_ready.emit)
+        csi_data_read_parse(
+            self.serial_port,
+            self.csv_writer,
+            self.log_file_fd,
+            callback=self.data_ready.emit,
+            baudrate=self.baudrate,
+        )
 
     def __del__(self):
         self.wait()
+        self.save_file_fd.close()
         self.log_file_fd.close()
 
 
@@ -328,25 +365,34 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
         description='Read CSI data from serial port and display it graphically')
-    parser.add_argument('-p', '--port', dest='port', action='store', required=True,
-                        help='Serial port number of csv_recv device')
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('-p', '--port', dest='port',
+                        help='Serial port number of CSI receiver')
+    source.add_argument('-i', '--input', dest='input_csv',
+                        help='Stored CSI CSV to display offline')
+    parser.add_argument('--baud', type=int, default=921600,
+                        help='Receiver baud rate (default: 921600)')
     parser.add_argument('-s', '--store', dest='store_file', action='store', default='./csi_data.csv',
                         help='Save the data printed by the serial port to a file')
     parser.add_argument('-l', '--log', dest='log_file', action='store', default='./csi_data_log.txt',
                         help='Save other serial data the bad CSI data to a log file')
 
     args = parser.parse_args()
-    serial_port = args.port
     file_name = args.store_file
     log_file_name = args.log_file
 
     app = QApplication(sys.argv)
 
-    subthread = SubThread(serial_port, file_name, log_file_name)
-
     window = csi_data_graphical_window()
-    subthread.data_ready.connect(window.update_curve_colors)
-    subthread.start()
+    if args.input_csv:
+        colors = load_csv_data(args.input_csv)
+        window.update_curve_colors(colors)
+        window.update_data()
+        window.setWindowTitle(f'CSI replay: {args.input_csv}')
+    else:
+        subthread = SubThread(args.port, file_name, log_file_name, args.baud)
+        subthread.data_ready.connect(window.update_curve_colors)
+        subthread.start()
     window.show()
 
     sys.exit(app.exec())

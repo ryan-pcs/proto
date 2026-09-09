@@ -5,6 +5,36 @@ prototype with a terminal-first collection workflow. The immediate objective is
 to produce non-empty CSI CSV files labelled `empty`, `metal`, and `non_metal`.
 Object identification is a later machine-learning phase; no classifier exists.
 
+## Quick Start
+
+From PowerShell, go to the workspace root:
+
+```powershell
+Set-Location "C:\Users\ryan\Documents\wifi workspace\proto"
+```
+
+Open the control panel:
+
+```powershell
+python .\wi-sense\tool\control_panel.py
+```
+
+In the panel:
+
+```text
+2 = Collect labeled CSI burst
+1 = Check transmitter status
+3 = Stop transmitter burst
+0 = Exit
+```
+
+For normal collection, choose `2`, enter the duration and rate, choose
+`empty`, `metal`, or `non_metal`, enter an optional run name, and press Enter.
+The collector prepares the receiver before it sends the transmitter burst.
+
+Before collection, close any serial monitor using COM3 or COM4. Only one
+program can use a serial port at a time.
+
 ## Current Truth
 
 The boards currently appeared as:
@@ -26,7 +56,8 @@ Receiver: CSI_DATA_COUNT=12
 ```
 
 The working transport is now UDP through the channel-11 `CSI_TX` access point.
-The transmitter sends unicast packets to the receiver at `192.168.4.2`.
+The transmitter sends unicast packets to the receiver at the fixed AP-side
+address `192.168.4.2`.
 The receiver joins the AP, enables CSI, and emits `CSI_DATA,` records at
 921600 baud. The old ESP-NOW path is retained only in historical notes and is
 not used by the current firmware.
@@ -68,6 +99,7 @@ wi-sense/
 
 - `wifi_init`: starts STA Wi-Fi, disables power save, sets channel 11 and HT20.
 - Connects to the transmitter AP `CSI_TX` with password `csi12345`.
+- Uses static address `192.168.4.2` on the transmitter AP subnet.
 - Waits for Wi-Fi association before reporting receiver readiness.
 - `wifi_csi_rx_cb`: formats CSI records as `CSI_DATA,...` serial lines.
 - `wifi_csi_init`: enables promiscuous mode, configures CSI, registers the CSI callback, and enables CSI.
@@ -129,8 +161,8 @@ Important current behavior:
 - Recommended first test: 5 seconds at 10 Hz or 50 Hz.
 - A CSV with `samples: 0` is an invalid capture.
 - The collector waits for both `WiFi connected to CSI_TX` and `CSI ready` when
-	those startup messages are available. It can also use an already-running
-	receiver at the known 921600 baud.
+	those startup messages are available. If readiness is not confirmed, it
+	stops without sending the transmitter burst.
 
 `tool/collect_csi.py`
 
@@ -139,8 +171,20 @@ Simple receiver-only CSV collector. It is legacy and defaults to `115200`; use
 
 `tool/csi_data_read_parse.py`
 
-Legacy graphical parser using PyQt/numpy. It parses CSI arrays and can display
-amplitude/phase, but it is not the preferred terminal workflow.
+Graphical CSI viewer using PyQt/numpy. It supports the current receiver baud:
+
+```powershell
+python .\wi-sense\tool\csi_data_read_parse.py --port COM4
+```
+
+It can also replay a stored capture without opening a serial port:
+
+```powershell
+python .\wi-sense\tool\csi_data_read_parse.py --input .\data\debug_capture_20260910_032235.csv
+```
+
+The viewer calculates amplitude and phase from the raw CSI values. It is a
+visualization tool, not the collection or classification workflow.
 
 `tool/live_burst_test.py`
 
@@ -194,6 +238,7 @@ CSI_CONFIG,result=ESP_OK
 CSI_CALLBACK,result=ESP_OK
 CSI_ENABLE,result=ESP_OK
 CSI ready; waiting for UDP traffic from CSI_TX
+RECEIVER_READY,ssid=CSI_TX,csi=enabled
 ```
 
 
@@ -266,9 +311,8 @@ data/<run_name>_<YYYYMMDD_HHMMSS>.csv
 data/<run_name>_<YYYYMMDD_HHMMSS>.json
 ```
 
-Failed or empty runs are automatically deleted by `collect_burst.py` when their
-sample count is zero. Older failed runs that were retained for troubleshooting
-are stored in:
+Failed or empty runs are automatically moved by `collect_burst.py` when their
+sample count is zero. They are stored in:
 
 ```text
 data/archive/empty_runs/

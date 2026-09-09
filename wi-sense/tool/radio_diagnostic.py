@@ -10,13 +10,23 @@ def read_available(port, seconds=1):
     return data.decode("utf-8", "replace")
 
 
+def read_until(port, marker, seconds=15):
+    data = b""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        data += port.read(4096)
+        if marker in data:
+            break
+    return data.decode("utf-8", "replace")
+
+
 tx = serial.Serial("COM3", 115200, timeout=0.1)
 rx = serial.Serial("COM4", 921600, timeout=0.1)
 try:
-    time.sleep(2)
+    time.sleep(1)
     tx.reset_input_buffer()
     print("RECEIVER_BEFORE")
-    print(read_available(rx))
+    print(read_until(rx, b"CSI ready"))
     rx.reset_input_buffer()
     tx.write(b"START 5000 10\n")
     tx.flush()
