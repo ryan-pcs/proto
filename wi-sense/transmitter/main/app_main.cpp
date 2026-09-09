@@ -12,7 +12,7 @@
 #define CONFIG_ESP_NOW_RATE                WIFI_PHY_RATE_MCS0_LGI
 #define CONFIG_SEND_FREQUENCY              100
 
-static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t CONFIG_CSI_SEND_MAC[] = {0xc6, 0x96, 0xce, 0x25, 0xa0, 0x09};
 static esp_now_peer_info_t peer;
 static uint32_t send_count = 0;
 static unsigned long last_send_time = 0;
