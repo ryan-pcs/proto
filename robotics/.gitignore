@@ -1,0 +1,11 @@
+# PlatformIO build output
+.pio/
+
+# Python cache and local data
+__pycache__/
+*.py[cod]
+
+# Local editor and OS files
+.vscode/*.log
+.DS_Store
+Thumbs.db

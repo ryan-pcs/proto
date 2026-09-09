@@ -1,0 +1,18 @@
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "compilerPath": "${env:USERPROFILE}/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-g++.exe",
+            "includePath": [
+                "${workspaceFolder}/wi-sense/**",
+                "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/**",
+                "${env:USERPROFILE}/.platformio/packages/toolchain-xtensa-esp32/**"
+            ],
+            "defines": ["ESP32", "ARDUINO=10819"],
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-gcc-x64"
+        }
+    ],
+    "version": 4
+}

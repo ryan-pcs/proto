@@ -1,0 +1,7 @@
+{
+  "idf.flashType": "UART",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**"
+  ]
+}
