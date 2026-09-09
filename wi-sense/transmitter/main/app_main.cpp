@@ -12,7 +12,7 @@
 #define CONFIG_ESP_NOW_RATE                WIFI_PHY_RATE_MCS0_LGI
 #define CONFIG_DEFAULT_SEND_FREQUENCY      100
 #define CONFIG_DEFAULT_BURST_DURATION_MS   5000
-#define CONFIG_MAX_BURST_DURATION_MS       600000
+#define CONFIG_MAX_BURST_DURATION_MS       10000
 #define CONFIG_MAX_SEND_FREQUENCY          1000
 
 static const uint8_t CONFIG_CSI_SEND_MAC[] = {0xc6, 0x96, 0xce, 0x25, 0xa0, 0x09};
@@ -157,7 +157,7 @@ void setup() {
         if (i < 5) Serial.print(":");
     }
     Serial.println();
-    Serial.println("READY,commands=START duration_ms rate_hz|STOP|STATUS");
+    Serial.println("READY,commands=START duration_ms rate_hz|STOP|STATUS,max_duration_ms=10000,max_rate_hz=1000");
 }
 
 void loop() {

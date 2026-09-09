@@ -1,5 +1,8 @@
 # CSI Data Collection
 
+See [`COMMANDS.md`](../COMMANDS.md) for the current transmitter commands. See
+[`STORAGE.md`](../STORAGE.md) for the local dataset layout and validity checks.
+
 The repository does not currently contain captured CSI data. The Python viewer records it while it is connected to the receiver.
 
 ## Before collecting
@@ -10,6 +13,21 @@ The repository does not currently contain captured CSI data. The Python viewer r
 - Choose a fixed distance and keep the receiver orientation consistent.
 
 ## Start a labeled burst
+
+### Terminal control
+
+Use `control_transmitter.py` instead of typing into the PlatformIO monitor. It
+uses the same command protocol that the future LCD will use:
+
+```powershell
+python .\control_transmitter.py --port COM3 status
+python .\control_transmitter.py --port COM3 burst --seconds 10 --rate 100 --label empty
+python .\control_transmitter.py --port COM3 stop
+```
+
+The label is dataset metadata for the operator; the transmitter only receives
+the duration and packet rate. The LCD can later map its menu selections to the
+same `START`, `STOP`, and `STATUS` lines.
 
 The transmitter accepts commands over its USB serial port. The collector sends a
 fixed-duration burst command, records the receiver's raw `CSI_DATA` rows, and

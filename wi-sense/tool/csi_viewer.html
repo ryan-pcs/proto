@@ -227,6 +227,12 @@
       gap: 18px;
     }
 
+    /* Keep charts available for later diagnostics without making them the primary workflow. */
+    .chart-grid,
+    .pause-panel {
+      display: none;
+    }
+
     .chart-card {
       padding: 16px;
     }
@@ -506,6 +512,58 @@
             <input id="collectionNameInput" type="text" value="csi_collection_01" maxlength="80">
           </label>
         </div>
+        <div style="height: 12px;"></div>
+        <div class="control-grid">
+          <label>
+            <span id="collectionLabelLabel">Label</span>
+            <span id="collectionLabelDesc" class="field-help">Choose the class for this burst.</span>
+            <select id="collectionLabelInput">
+              <option value="empty">empty</option>
+              <option value="metal">metal</option>
+              <option value="non_metal">non_metal</option>
+            </select>
+          </label>
+          <label>
+            <span id="burstDurationLabel">Duration (ms)</span>
+            <input id="burstDurationInput" type="number" value="5000" min="1" max="10000" step="100">
+          </label>
+          <label>
+            <span id="burstRateLabel">Rate (packets/sec)</span>
+            <input id="burstRateInput" type="number" value="100" min="1" max="1000" step="1">
+          </label>
+          <label>
+            <span id="environmentLabel">Environment</span>
+            <input id="environmentInput" type="text" value="room_01" maxlength="80">
+          </label>
+          <label>
+            <span id="distanceLabel">Distance (cm)</span>
+            <input id="distanceInput" type="number" value="100" min="0" step="1">
+          </label>
+          <label>
+            <span id="notesLabel">Notes</span>
+            <input id="notesInput" type="text" value="" maxlength="160">
+          </label>
+        </div>
+        <label class="toggle-switch">
+          <input id="autoExportToggle" type="checkbox" checked>
+          <span id="autoExportLabel">Automatically download CSV and metadata after burst</span>
+        </label>
+        <div class="button-row">
+          <button id="connectTransmitterBtn" class="secondary">Connect transmitter</button>
+          <button id="startBurstBtn" class="primary" disabled>Start burst</button>
+          <button id="stopBurstBtn" class="secondary" disabled>Stop</button>
+        </div>
+        <div class="control-grid">
+          <label>
+            <span id="operationModeLabel">Mode</span>
+            <select id="operationModeInput">
+              <option value="collect">Collect dataset</option>
+              <option value="identify">Identify object</option>
+            </select>
+          </label>
+        </div>
+        <div id="identificationStatus" class="field-help collection-status">Identification model not trained</div>
+        <div id="transmitterStatus" class="field-help collection-status">Transmitter disconnected</div>
         <div id="collectionStatus" class="field-help collection-status">未开始采集</div>
         <div style="height: 12px;"></div>
         <div class="button-row">
@@ -516,6 +574,7 @@
         <div class="button-row">
           <button id="clearChartsBtn" class="secondary">清空波形</button>
           <button id="downloadCsvBtn" class="secondary">下载 CSV</button>
+          <button id="downloadMetadataBtn" class="secondary">Download metadata</button>
         </div>
         <div class="pause-panel">
           <button id="pauseUiBtn" class="pause-btn stopped" type="button" disabled>停止</button>
@@ -526,6 +585,15 @@
       <section class="panel section">
         <h2 id="usageGuideTitle">使用说明</h2>
         <div id="usageGuideBody" class="usage-guide"></div>
+      </section>
+
+      <section class="panel section">
+        <div class="toolbar">
+          <h2 id="storageTitle">Dataset storage</h2>
+          <button id="clearStorageBtn" class="secondary" type="button">Clear saved runs</button>
+        </div>
+        <div id="storageStatus" class="field-help">Browser-local storage is ready.</div>
+        <div id="savedRunsList" class="usage-guide"></div>
       </section>
 
       <section class="panel section">
@@ -788,7 +856,7 @@
         colorMapDesc: "Color to subcarrier index mapping for rendered traces. Sampling ratio {ratio}, showing {shown}/{total}.",
         colorMapEmpty: "Waiting for CSI data...",
         usageGuideTitle: "Usage Guide",
-        usageGuideBody: "<div>1. Click Connect to start receiving <code>CSI_DATA</code>.</div><div>2. Charts support left-drag to pan, mouse wheel to zoom, and double-click to reset; scrolling over the X axis zooms horizontally only, scrolling over the Y axis zooms vertically only.</div><div>3. Use the color map to match each history trace to its subcarrier index.</div><div>4. After pausing you can inspect a frozen snapshot; press Space to toggle pause / resume.</div><div>5. A larger sampling value shows fewer subcarriers and reduces rendering load; disable charts you don't need to reduce it further.</div>",
+        usageGuideBody: "<div>1. Close PlatformIO monitors, connect the receiver first, then connect the transmitter.</div><div>2. Choose empty, metal, or non_metal, set duration and packet rate, then click Start burst.</div><div>3. The page waits for the receiver serial stream to drain, then downloads raw CSV and JSON metadata automatically.</div><div>4. Files are saved by the browser in its Downloads folder; use the collection name, environment, distance, and notes to organize runs.</div><div>5. The charts are diagnostic; the CSV and metadata are the dataset for later machine learning.</div>",
         validCountLabel: "Valid",
         invalidCountLabel: "Invalid",
         logCountLabel: "Log Lines",
@@ -835,6 +903,10 @@
         eventClearedLogs: "Logs cleared",
         eventNoCsv: "No CSI data to export",
         eventCsvExported: "Exported csi_data.csv with {count} rows",
+        eventMetadataExported: "Exported JSON metadata",
+        eventCollectionExported: "Automatically exported {count} CSI frames",
+        eventTransmitterUnavailable: "Transmitter is not connected",
+        eventInvalidBurst: "Use duration 1-10000 ms and rate 1-1000 packets/sec",
         eventNoLog: "No logs to export",
         eventLogExported: "Exported csi_data_log.txt",
         eventSampleStrideApplied: "Applied sampling ratio {stride}:1",
@@ -851,6 +923,17 @@
     const state = {
       port: null,
       reader: null,
+      transmitterPort: null,
+      transmitterWriter: null,
+      transmitterReader: null,
+      transmitterConnected: false,
+      burstStartedAt: null,
+      burstSettings: null,
+      burstExported: false,
+      transmitterBurstEndedAt: null,
+      lastCsiAt: null,
+      operationMode: "collect",
+      savedRuns: [],
       connected: false,
       disconnecting: false,
       frames: [],
@@ -893,7 +976,22 @@
     const sampleStrideInput = document.getElementById("sampleStrideInput");
     const sampleRatioHelp = document.getElementById("sampleRatioHelp");
     const collectionNameInput = document.getElementById("collectionNameInput");
+    const collectionLabelInput = document.getElementById("collectionLabelInput");
+    const burstDurationInput = document.getElementById("burstDurationInput");
+    const burstRateInput = document.getElementById("burstRateInput");
+    const environmentInput = document.getElementById("environmentInput");
+    const distanceInput = document.getElementById("distanceInput");
+    const notesInput = document.getElementById("notesInput");
+    const autoExportToggle = document.getElementById("autoExportToggle");
+    const operationModeInput = document.getElementById("operationModeInput");
+    const identificationStatus = document.getElementById("identificationStatus");
+    const storageStatus = document.getElementById("storageStatus");
+    const savedRunsList = document.getElementById("savedRunsList");
     const collectionStatus = document.getElementById("collectionStatus");
+    const transmitterStatus = document.getElementById("transmitterStatus");
+    const connectTransmitterBtn = document.getElementById("connectTransmitterBtn");
+    const startBurstBtn = document.getElementById("startBurstBtn");
+    const stopBurstBtn = document.getElementById("stopBurstBtn");
     const baudRateText = document.getElementById("baudRateText");
     const pauseUiBtn = document.getElementById("pauseUiBtn");
     const pauseHint = document.getElementById("pauseHint");
@@ -1373,6 +1471,7 @@
       }
 
       state.stats.validFrames += 1;
+      state.lastCsiAt = Date.now();
       state.currentFormat = parsed.format;
       state.lastMeta = {
         ...parsed.meta,
@@ -1406,6 +1505,76 @@
 
     function waitMs(ms) {
       return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    const DATASET_DB_NAME = "esp_csi_dataset";
+    const DATASET_DB_VERSION = 1;
+
+    function openDatasetDb() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DATASET_DB_NAME, DATASET_DB_VERSION);
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore("runs", { keyPath: "runId" });
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function saveRunLocally(metadata, csvContent) {
+      try {
+        const db = await openDatasetDb();
+        await new Promise((resolve, reject) => {
+          const transaction = db.transaction("runs", "readwrite");
+          transaction.objectStore("runs").put({
+            runId: metadata.collection_name,
+            metadata,
+            csvContent,
+            savedAt: new Date().toISOString(),
+          });
+          transaction.oncomplete = resolve;
+          transaction.onerror = () => reject(transaction.error);
+        });
+        db.close();
+        storageStatus.textContent = `Saved locally: ${metadata.collection_name}`;
+        await loadSavedRuns();
+      } catch (error) {
+        storageStatus.textContent = "Local storage unavailable: " + error.message;
+      }
+    }
+
+    async function loadSavedRuns() {
+      try {
+        const db = await openDatasetDb();
+        state.savedRuns = await new Promise((resolve, reject) => {
+          const request = db.transaction("runs", "readonly").objectStore("runs").getAll();
+          request.onsuccess = () => resolve(request.result.sort((a, b) => b.savedAt.localeCompare(a.savedAt)));
+          request.onerror = () => reject(request.error);
+        });
+        db.close();
+        savedRunsList.textContent = state.savedRuns.length
+          ? state.savedRuns.map((run) => `${run.metadata.label} · ${run.runId} · ${run.metadata.samples} frames`).join("\\n")
+          : "No saved runs yet.";
+      } catch (error) {
+        storageStatus.textContent = "Local storage unavailable: " + error.message;
+      }
+    }
+
+    async function clearSavedRuns() {
+      try {
+        const db = await openDatasetDb();
+        await new Promise((resolve, reject) => {
+          const transaction = db.transaction("runs", "readwrite");
+          transaction.objectStore("runs").clear();
+          transaction.oncomplete = resolve;
+          transaction.onerror = () => reject(transaction.error);
+        });
+        db.close();
+        storageStatus.textContent = "Saved runs cleared.";
+        await loadSavedRuns();
+      } catch (error) {
+        storageStatus.textContent = "Could not clear storage: " + error.message;
+      }
     }
 
     function buildLegend(container, items) {
@@ -2456,6 +2625,186 @@
       }
     }
 
+    function updateTransmitterControls() {
+      const connected = state.transmitterConnected;
+      transmitterStatus.textContent = connected ? "Transmitter connected" : "Transmitter disconnected";
+      connectTransmitterBtn.disabled = connected;
+      startBurstBtn.disabled = !connected;
+      stopBurstBtn.disabled = !connected;
+    }
+
+    async function connectTransmitter() {
+      if (!("serial" in navigator)) {
+        addEvent("eventUnsupported");
+        return;
+      }
+      try {
+        state.transmitterPort = await navigator.serial.requestPort();
+        await state.transmitterPort.open({
+          baudRate: 115200,
+          dataBits: 8,
+          stopBits: 1,
+          parity: "none",
+          flowControl: "none",
+          bufferSize: 4096,
+        });
+        state.transmitterConnected = true;
+        updateTransmitterControls();
+        appendLogRaw("[TX] connected");
+        startTransmitterReadLoop();
+      } catch (error) {
+        addEvent("eventConnectFailed", { message: error.message });
+      }
+    }
+
+    async function startTransmitterReadLoop() {
+      if (!state.transmitterPort?.readable) {
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        state.transmitterReader = state.transmitterPort.readable.getReader();
+        while (true) {
+          const { value, done } = await state.transmitterReader.read();
+          if (done) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\\n");
+          buffer = lines.pop() || "";
+          for (const rawLine of lines) {
+            handleTransmitterLine(rawLine.replace(/\\r$/, "").trim());
+          }
+        }
+      } catch (error) {
+        if (state.transmitterConnected) {
+          appendLogRaw("[TX] read error: " + error.message);
+        }
+      } finally {
+        if (state.transmitterReader) {
+          state.transmitterReader.releaseLock();
+          state.transmitterReader = null;
+        }
+      }
+    }
+
+    function handleTransmitterLine(line) {
+      if (!line) {
+        return;
+      }
+      appendLogRaw("[TX] " + line);
+      if (line.startsWith("BURST_START")) {
+        transmitterStatus.textContent = "Burst running";
+      } else if (line.startsWith("BURST_END")) {
+        transmitterStatus.textContent = line;
+        state.transmitterBurstEndedAt = Date.now();
+        if (autoExportToggle.checked && !state.burstExported) {
+          waitForReceiverDrain();
+        }
+      } else if (line.startsWith("ERROR")) {
+        transmitterStatus.textContent = line;
+      }
+    }
+
+    function waitForReceiverDrain() {
+      const quietMs = 3000;
+      const check = () => {
+        if (state.burstExported || !state.transmitterBurstEndedAt) {
+          return;
+        }
+        const lastCsiAt = state.lastCsiAt || state.transmitterBurstEndedAt;
+        const elapsed = Date.now() - Math.max(lastCsiAt, state.transmitterBurstEndedAt);
+        if (elapsed >= quietMs) {
+          state.burstExported = true;
+          exportCollection();
+          return;
+        }
+        window.setTimeout(check, quietMs - elapsed);
+      };
+      window.setTimeout(check, quietMs);
+    }
+
+    async function sendTransmitterCommand(command) {
+      if (!state.transmitterPort?.writable) {
+        addEvent("eventTransmitterUnavailable");
+        return false;
+      }
+      const writer = state.transmitterPort.writable.getWriter();
+      try {
+        await writer.write(new TextEncoder().encode(command + "\n"));
+        return true;
+      } catch (error) {
+        addEvent("eventReadError", { message: error.message });
+        return false;
+      } finally {
+        writer.releaseLock();
+      }
+    }
+
+    function getBurstSettings() {
+      const durationMs = Number.parseInt(burstDurationInput.value, 10);
+      const rateHz = Number.parseInt(burstRateInput.value, 10);
+      if (!Number.isInteger(durationMs) || durationMs < 1 || durationMs > 10000 ||
+          !Number.isInteger(rateHz) || rateHz < 1 || rateHz > 1000) {
+        addEvent("eventInvalidBurst");
+        return null;
+      }
+      return {
+        durationMs,
+        rateHz,
+        mode: operationModeInput.value,
+        label: operationModeInput.value === "identify" ? "unlabeled" : collectionLabelInput.value,
+      };
+    }
+
+    async function startBurst() {
+      const settings = getBurstSettings();
+      if (!settings || !(await sendTransmitterCommand(`START ${settings.durationMs} ${settings.rateHz}`))) {
+        return;
+      }
+      const currentName = collectionNameInput.value.trim();
+      if (!currentName || currentName === "csi_collection_01") {
+        const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+        collectionNameInput.value = `${settings.label}_${timestamp}`;
+        state.collectionName = collectionNameInput.value;
+      }
+      state.burstStartedAt = Date.now();
+      state.burstSettings = settings;
+      state.burstExported = false;
+      state.transmitterBurstEndedAt = null;
+      state.lastCsiAt = null;
+      clearCharts();
+      transmitterStatus.textContent = `Burst running: ${settings.label}`;
+      identificationStatus.textContent = settings.mode === "identify"
+        ? "Capturing for identification; model not trained"
+        : `Collecting labeled data: ${settings.label}`;
+    }
+
+    async function stopBurst() {
+      if (await sendTransmitterCommand("STOP")) {
+        transmitterStatus.textContent = "Burst stopped";
+      }
+    }
+
+    async function disconnectTransmitter() {
+      if (!state.transmitterPort) {
+        return;
+      }
+      try {
+        if (state.transmitterReader) {
+          await state.transmitterReader.cancel();
+          state.transmitterReader = null;
+        }
+        await state.transmitterPort.close();
+      } catch (error) {
+        void error;
+      }
+      state.transmitterPort = null;
+      state.transmitterConnected = false;
+      updateTransmitterControls();
+    }
+
     async function disconnectSerial(logMessage = true) {
       if (!state.port || state.disconnecting) {
         return;
@@ -2550,19 +2899,84 @@
       addEvent("eventClearedLogs");
     }
 
-    function downloadCsv() {
+    function getSafeCollectionName() {
+      return (collectionNameInput.value.trim() || `${collectionLabelInput.value}_collection`)
+        .replace(/[^a-z0-9_-]+/gi, "_")
+        .replace(/^_+|_+$/g, "") || "csi_collection";
+    }
+
+    function getCsvContent() {
+      const header = state.csvHeader ? state.csvHeader.map(escapeCsvField).join(",") + "\n" : "";
+      return header + state.csvLines.join("\n") + "\n";
+    }
+
+    function downloadCsv(silent = false) {
       if (state.csvLines.length === 0) {
-        addEvent("eventNoCsv");
+        if (!silent) {
+          addEvent("eventNoCsv");
+        }
         return;
       }
       const count = state.csvLines.length;
-      const header = state.csvHeader ? state.csvHeader.map(escapeCsvField).join(",") + "\n" : "";
-      const content = header + state.csvLines.join("\n") + "\n";
-      const safeName = (collectionNameInput.value.trim() || "csi_collection_01")
-        .replace(/[^a-z0-9_-]+/gi, "_")
-        .replace(/^_+|_+$/g, "") || "csi_collection_01";
-      downloadText(safeName + ".csv", content, "text/csv;charset=utf-8");
-      addEvent("eventCsvExported", { count });
+      const content = getCsvContent();
+      downloadText(getSafeCollectionName() + ".csv", content, "text/csv;charset=utf-8");
+      if (!silent) {
+        addEvent("eventCsvExported", { count });
+      }
+    }
+
+    function buildMetadata() {
+      const settings = state.burstSettings || {
+        durationMs: Number.parseInt(burstDurationInput.value, 10),
+        rateHz: Number.parseInt(burstRateInput.value, 10),
+        label: collectionLabelInput.value,
+      };
+      const metadata = {
+        schema_version: 1,
+        collection_name: collectionNameInput.value.trim() || "csi_collection_01",
+        label: settings.label,
+        duration_ms: settings.durationMs,
+        rate_hz: settings.rateHz,
+        channel: 11,
+        baud_rate: 115200,
+        samples: state.csvLines.length,
+        started_at: state.burstStartedAt ? new Date(state.burstStartedAt).toISOString() : null,
+        exported_at: new Date().toISOString(),
+        format: state.currentFormat,
+        mode: settings.mode,
+        transmitter_burst_ended_at: state.transmitterBurstEndedAt ? new Date(state.transmitterBurstEndedAt).toISOString() : null,
+        receiver_drain_complete: Boolean(state.lastCsiAt),
+        environment: environmentInput.value.trim(),
+        distance_cm: Number.parseFloat(distanceInput.value) || 0,
+        notes: notesInput.value.trim(),
+      };
+      return metadata;
+    }
+
+    function downloadMetadata(silent = false) {
+      const metadata = buildMetadata();
+      downloadText(getSafeCollectionName() + ".json", JSON.stringify(metadata, null, 2) + "\n", "application/json;charset=utf-8");
+      if (!silent) {
+        addEvent("eventMetadataExported");
+      }
+    }
+
+    function exportCollection() {
+      if (state.csvLines.length === 0) {
+        transmitterStatus.textContent = "Burst ended, but no CSI frames were received";
+        addEvent("eventNoCsv");
+        return;
+      }
+      downloadCsv(true);
+      downloadMetadata(true);
+      const metadata = buildMetadata();
+      const csvContent = getCsvContent();
+      void saveRunLocally(metadata, csvContent);
+      transmitterStatus.textContent = `Saved ${state.csvLines.length} CSI frames`;
+      identificationStatus.textContent = metadata.mode === "identify"
+        ? "Captured. Identification requires a trained model."
+        : `Dataset saved as ${metadata.label}`;
+      addEvent("eventCollectionExported", { count: state.csvLines.length });
     }
 
     function downloadLog() {
@@ -2612,6 +3026,11 @@
       document.getElementById("clearChartsBtn").addEventListener("click", clearCharts);
       document.getElementById("clearLogsBtn").addEventListener("click", clearLogs);
       document.getElementById("downloadCsvBtn").addEventListener("click", downloadCsv);
+      document.getElementById("downloadMetadataBtn").addEventListener("click", downloadMetadata);
+      document.getElementById("clearStorageBtn").addEventListener("click", clearSavedRuns);
+      connectTransmitterBtn.addEventListener("click", connectTransmitter);
+      startBurstBtn.addEventListener("click", startBurst);
+      stopBurstBtn.addEventListener("click", stopBurst);
       document.getElementById("downloadLogBtn").addEventListener("click", downloadLog);
       document.getElementById("applySampleStrideBtn").addEventListener("click", applySampleStride);
       pauseUiBtn.addEventListener("click", toggleUiPause);
@@ -2621,6 +3040,16 @@
       collectionNameInput.addEventListener("input", () => {
         state.collectionName = collectionNameInput.value;
       });
+      operationModeInput.addEventListener("change", () => {
+        state.operationMode = operationModeInput.value;
+        collectionLabelInput.disabled = state.operationMode === "identify";
+        identificationStatus.textContent = state.operationMode === "identify"
+          ? "Identification model not trained"
+          : "Choose a label before collecting";
+      });
+      collectionLabelInput.disabled = false;
+      void loadSavedRuns();
+      updateTransmitterControls();
       const syncPhaseCenterZeroEnabled = () => {
         if (!phaseCenterZeroToggle) {
           return;

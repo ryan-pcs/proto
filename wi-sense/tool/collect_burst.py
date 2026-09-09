@@ -73,7 +73,9 @@ def collect(args):
     log_lines = []
     header = None
     burst_end_seen = False
-    deadline = time.monotonic() + args.duration_ms / 1000 + 3
+    receiver_ready = False
+    receiver_log = []
+    deadline = None
 
     with serial.Serial(args.transmitter, args.baud, timeout=0.05) as transmitter, serial.Serial(
         args.receiver, args.baud, timeout=0.05
@@ -81,12 +83,30 @@ def collect(args):
         transmitter.reset_input_buffer()
         receiver.reset_input_buffer()
         writer = csv.writer(csv_file)
+
+        ready_deadline = time.monotonic() + 8
+        while time.monotonic() < ready_deadline:
+            startup_line = receiver.readline()
+            if not startup_line:
+                continue
+            startup_text = startup_line.decode("utf-8", errors="replace").strip()
+            if startup_text:
+                receiver_log.append(startup_text)
+                if "CSI ready" in startup_text:
+                    receiver_ready = True
+                    break
+        if not receiver_ready:
+            raise RuntimeError(
+                "receiver did not report 'CSI ready'; reset the receiver and verify the receiver port"
+            )
+
         command = f"START {args.duration_ms} {args.rate_hz}\n".encode("ascii")
         transmitter.write(command)
         transmitter.flush()
         metadata["command_sent_at"] = utc_now()
+        deadline = time.monotonic() + args.duration_ms / 1000 + 3
 
-        while time.monotonic() < deadline:
+        while deadline is not None and time.monotonic() < deadline:
             tx_line = transmitter.readline()
             if tx_line:
                 text = tx_line.decode("utf-8", errors="replace").strip()
@@ -117,6 +137,7 @@ def collect(args):
                 valid_count += 1
             else:
                 log_lines.append(text)
+                receiver_log.append(text)
 
         if not burst_end_seen:
             transmitter.write(b"STOP\n")
@@ -125,6 +146,8 @@ def collect(args):
     metadata["finished_at"] = utc_now()
     metadata["samples"] = valid_count
     metadata["transmitter_log"] = log_lines
+    metadata["receiver_ready"] = receiver_ready
+    metadata["receiver_log"] = receiver_log
     metadata["complete"] = burst_end_seen
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(f"Saved {valid_count} CSI samples to {csv_path}")
@@ -136,7 +159,7 @@ def collect(args):
 def main():
     try:
         collect(parse_args())
-    except (OSError, serial.SerialException, ValueError) as error:
+    except (OSError, serial.SerialException, RuntimeError, ValueError) as error:
         raise SystemExit(f"Collection failed: {error}") from error
 
 
