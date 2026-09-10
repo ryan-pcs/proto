@@ -28,8 +28,9 @@ In the panel:
 0 = Exit
 ```
 
-For normal collection, choose `2`, enter the duration and rate, choose
-`empty`, `metal`, or `non_metal`, enter an optional run name, and press Enter.
+For normal collection, choose `2`, enter duration and rate, choose a data
+folder, enter the object name, and press Enter. Press `Q` during collection to
+cancel and discard the run.
 The collector prepares the receiver before it sends the transmitter burst.
 
 Before collection, close any serial monitor using the transmitter or receiver
@@ -77,7 +78,7 @@ CSI_ENABLE,result=ESP_OK
 
 1. Flash the current transmitter and receiver images.
 2. Confirm the transmitter is running `mode=udp_ap`.
-3. Confirm COM4 emits `CSI_DATA,` during a low-rate burst.
+3. Confirm COM3 emits `CSI_DATA,` during a low-rate burst.
 4. Save non-empty labelled CSV files with matching JSON metadata.
 5. Only then add filtering, feature extraction, and AI classification.
 
@@ -134,7 +135,7 @@ trusting the running image.
 
 - Boxed interactive menu.
 - Auto-detects transmitter by sending `STATUS` to candidate ports.
-- Prompts for duration, rate, label, and optional run name.
+- Prompts for duration, rate, data folder, and object name.
 - Calls `collect_burst.py` for both-board collection.
 
 `tool/control_transmitter.py`
@@ -175,7 +176,7 @@ Simple receiver-only CSV collector. It is legacy and defaults to `115200`; use
 Graphical CSI viewer using PyQt/numpy. It supports the current receiver baud:
 
 ```powershell
-python .\wi-sense\tool\csi_data_read_parse.py --port COM4
+python .\wi-sense\tool\csi_data_read_parse.py --port COM3
 ```
 
 It can also replay a stored capture without opening a serial port:
@@ -194,8 +195,8 @@ prefer `radio_diagnostic.py` or `collect_burst.py`.
 
 `tool/radio_diagnostic.py`
 
-Direct hardware test. It opens COM3 at 115200 and COM4 at 921600, sends a 5
-second 10 Hz UDP burst, and counts `CSI_DATA` output.
+Direct hardware test. It opens the transmitter at 115200 and receiver at
+921600, sends a 5 second 10 Hz UDP burst, and counts `CSI_DATA` output.
 
 `tool/csi_viewer.html`
 
@@ -207,8 +208,8 @@ unless terminal collection is unavailable.
 From the workspace root:
 
 ```powershell
-& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" run -d ".\wi-sense\receiver" -t upload --upload-port COM4
-& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" run -d ".\wi-sense\transmitter" -t upload --upload-port COM3
+& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" run -d ".\wi-sense\receiver" -t upload --upload-port COM3
+& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" run -d ".\wi-sense\transmitter" -t upload --upload-port COM6
 ```
 
 Do not proceed until each command ends with:
@@ -223,8 +224,8 @@ button while starting upload. Release it after connection begins.
 Monitor ports directly:
 
 ```powershell
-& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" device monitor -p COM3 -b 115200
-& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" device monitor -p COM4 -b 921600
+& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" device monitor -p COM6 -b 115200
+& "C:\Users\ryan\.platformio\penv\Scripts\pio.exe" device monitor -p COM3 -b 921600
 ```
 
 Expected receiver startup:
@@ -239,18 +240,18 @@ CSI_CONFIG,result=ESP_OK
 CSI_CALLBACK,result=ESP_OK
 CSI_ENABLE,result=ESP_OK
 CSI ready; waiting for UDP traffic from CSI_TX
-RECEIVER_READY,ssid=CSI_TX,csi=enabled
+RECEIVER_READY,ssid=CSI_TX,csi=enabled,wifi=connected
 ```
 
 
 ## Testing Sequence
 
 1. Close both monitors.
-2. Flash receiver COM4 and transmitter COM3.
+2. Flash receiver COM3 and transmitter COM6.
 3. Verify transmitter status:
 
 ```powershell
-python .\wi-sense\tool\control_transmitter.py --port COM3 status
+python .\wi-sense\tool\control_transmitter.py --port COM6 status
 ```
 
 The current UDP source should eventually report `mode=udp_ap` in `STATUS`.
@@ -261,13 +262,13 @@ The current UDP source should eventually report `mode=udp_ap` in `STATUS`.
 python .\wi-sense\tool\control_panel.py
 ```
 
-5. Choose `2`, enter a duration and rate, select a label, and start collection.
+5. Choose `2`, enter duration and rate, select a data folder and object name, and start collection. Press `Q` to cancel without saving.
 	The panel waits for receiver readiness before sending `START`.
 
 For a raw diagnostic, send a low-rate burst:
 
 ```powershell
-python .\wi-sense\tool\control_transmitter.py --port COM3 burst --seconds 5 --rate 10
+python .\wi-sense\tool\control_transmitter.py --port COM6 burst --seconds 5 --rate 10
 ```
 
 6. Look for one or more lines beginning with:
@@ -281,7 +282,7 @@ CSI_DATA,
 
 ## Raw device commands
 
-These are sent to COM3 at 115200:
+These are sent to the transmitter at 115200:
 
 ```text
 STATUS
@@ -305,19 +306,23 @@ START 60000 100
 
 ## Storage and Result Meaning
 
-Collection output is saved under the current working directory's `data` folder:
+Collection output is saved in one selected top-level `data` folder:
 
 ```text
-data/<run_name>_<YYYYMMDD_HHMMSS>.csv
-data/<run_name>_<YYYYMMDD_HHMMSS>.json
+data/<folder>/<object>_<category>_<seconds>_<hz>_<MM-DD-YYYY_HHMMSS>.csv
+data/<folder>/<object>_<category>_<seconds>_<hz>_<MM-DD-YYYY_HHMMSS>.json
 ```
+
+The default folders are `empty`, `metal`, `non_metal`, and `other`; the panel
+can create a custom folder. New metadata uses schema version 2 with
+`category`, `object_name`, and `description` fields.
 
 Failed, partial, or empty runs are automatically moved by `collect_burst.py`
 when the burst is incomplete, transmitter failures are present, or the sample
 count is zero. They are stored in:
 
 ```text
-data/archive/empty_runs/
+data/archive/<selected-folder>/
 ```
 
 The archive keeps those older CSV and matching JSON files together for
@@ -327,7 +332,7 @@ The CSV contains complete receiver lines beginning with `CSI_DATA,`. It is
 lightly parsed into columns but the signal values are not filtered, smoothed,
 normalized, or classified.
 
-The JSON records label, timestamps, ports, baud rates, duration, rate,
+The JSON records category, object name, timestamps, ports, baud rates, duration, rate,
 transmitter packet count, receiver sample count, and completion status.
 
 Valid result:
@@ -382,7 +387,7 @@ collector now buffers bytes until newline before parsing.
 
 ### Receiver reset timing
 
-Opening COM4 can reset an ESP32. The collector waits for receiver association
+Opening COM3 can reset an ESP32. The collector waits for receiver association
 and CSI initialization before starting a burst, with a fallback for an already
 running receiver at 921600 baud.
 
@@ -408,7 +413,7 @@ trust source changes until PlatformIO prints `[SUCCESS]` and a runtime banner or
 - Do not train a model from empty CSV files.
 - Do not call a label an automatic classification; labels are human-provided.
 - Do not raise the rate above 100 Hz until CSI output is confirmed.
-- Do not judge the collector until raw `CSI_DATA,` lines appear in COM4.
+- Do not judge the collector until raw `CSI_DATA,` lines appear in COM3.
 - Do not run a serial monitor and Python collector on the same COM port.
 
 ## Next Chat Prompt
@@ -416,8 +421,8 @@ trust source changes until PlatformIO prints `[SUCCESS]` and a runtime banner or
 Paste this into a new chat:
 
 ```text
-Read wi-sense/COMMANDS.md first. The ESP32 project uses COM3 as transmitter
-and COM4 as receiver. The current transport is UDP unicast from the `CSI_TX`
+Read wi-sense/COMMANDS.md first. The ESP32 project most recently used COM6 as
+transmitter and COM3 as receiver. The current transport is UDP unicast from the `CSI_TX`
 access point to receiver address `192.168.4.2` on channel 11. Verify `STATUS`
 reports `mode=udp_ap`, then run the control panel and keep only captures whose
 JSON reports `capture_status=success` and `samples > 0`.

@@ -282,7 +282,7 @@ def collect(args):
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     failed_capture = metadata["capture_status"] != "success"
     if failed_capture:
-        archive_dir = output_dir / "archive" / "empty_runs"
+        archive_dir = output_dir / "archive" / folder_name
         archive_dir.mkdir(parents=True, exist_ok=True)
         csv_path.replace(archive_dir / csv_path.name)
         metadata_path.replace(archive_dir / metadata_path.name)

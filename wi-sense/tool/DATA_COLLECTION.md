@@ -3,7 +3,7 @@
 See [`COMMANDS.md`](../COMMANDS.md) for the current transmitter commands. See
 [`STORAGE.md`](../STORAGE.md) for the local dataset layout and validity checks.
 
-The repository does not currently contain captured CSI data. The Python viewer records it while it is connected to the receiver.
+The terminal collector is the current workflow. The Python viewer is legacy and should not be used for the primary dataset.
 
 ## Before collecting
 
@@ -20,9 +20,9 @@ Use `control_transmitter.py` instead of typing into the PlatformIO monitor. It
 uses the same command protocol that the future LCD will use:
 
 ```powershell
-python .\control_transmitter.py --port COM3 status
-python .\control_transmitter.py --port COM3 burst --seconds 10 --rate 100 --label empty
-python .\control_transmitter.py --port COM3 stop
+python .\control_transmitter.py --port COM6 status
+python .\control_transmitter.py --port COM6 burst --seconds 10 --rate 100
+python .\control_transmitter.py --port COM6 stop
 ```
 
 The label is dataset metadata for the operator; the transmitter only receives
@@ -33,17 +33,17 @@ The transmitter accepts commands over its USB serial port. The collector sends a
 fixed-duration burst command, records the receiver's raw `CSI_DATA` rows, and
 writes one CSV file plus one JSON metadata file.
 
-Use one of the three labels `empty`, `metal`, or `non_metal`:
+Use the control panel to choose `empty`, `metal`, `non_metal`, or `other`, then enter the object name. The selected folder supplies the category in the filename and JSON. Press `Q` during collection to cancel without saving.
 
 ```powershell
-python .\collect_burst.py --transmitter COM3 --receiver COM4 --label empty --duration-ms 5000 --rate-hz 100 --run-id empty_001
+python .\collect_burst.py --transmitter COM6 --receiver COM3 --label empty --object-name none --duration-ms 5000 --rate-hz 100 --run-id empty
 ```
 
 The same command works for the other classes:
 
 ```powershell
-python .\collect_burst.py --transmitter COM3 --receiver COM4 --label metal --run-id metal_001
-python .\collect_burst.py --transmitter COM3 --receiver COM4 --label non_metal --run-id non_metal_001
+python .\collect_burst.py --transmitter COM6 --receiver COM3 --label metal --object-name mug --run-id metal
+python .\collect_burst.py --transmitter COM6 --receiver COM3 --label non_metal --object-name keys --run-id non_metal
 ```
 
 The transmitter command protocol is also available for manual testing:
@@ -60,8 +60,8 @@ packet rate, not the Wi-Fi radio channel. The current channel is 11.
 Each run produces files like:
 
 ```text
-data/metal_001.csv
-data/metal_001.json
+data/metal/mug_metal_5s_100hz_09-10-2026_120000.csv
+data/metal/mug_metal_5s_100hz_09-10-2026_120000.json
 ```
 
 The CSV preserves the raw CSI values. The JSON records the label, duration,
