@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "run_id": "none_other_10s_50hz_09-11-2026_010811",
+  "category": "other",
+  "object_name": "none",
+  "description": "custom category",
+  "duration_ms": 10000,
+  "rate_hz": 50,
+  "channel": 11,
+  "transmitter_port": "COM3",
+  "receiver_port": "COM4",
+  "transmitter_baud": 115200,
+  "receiver_baud": 921600,
+  "receiver_capture_armed": true,
+  "started_at": "2026-09-10T17:08:11.640308+00:00",
+  "command_sent_at": "2026-09-10T17:08:22.075250+00:00",
+  "finished_at": "2026-09-10T17:08:34.138226+00:00",
+  "samples": 240,
+  "transmitter_log": [
+    "BURST_START,duration_ms=10000,rate_hz=50",
+    "BURST_END,packets=500,success=500,fail=0"
+  ],
+  "receiver_connected": true,
+  "receiver_log": [
+    "================ CSI RECV ================"
+  ],
+  "transmitter_packets": 500,
+  "transmitter_failures": 0,
+  "complete": true,
+  "raw_data_stored": true,
+  "sample_count_matches_transmitter": false,
+  "processing_status": "not_run",
+  "derived_files": [],
+  "capture_status": "partial"
+}

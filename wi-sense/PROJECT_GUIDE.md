@@ -62,8 +62,9 @@ In the panel, choose collection, then select:
 2. Object name: use `none` for an empty environment.
 3. Duration and packet rate.
 
-Press `Q` during collection to stop the burst and discard the capture. No CSV
-or JSON is saved when cancelled.
+Every started collection runs to its configured duration and then stops through
+the normal cleanup path. Failed bursts are archived rather than treated as
+training data.
 
 ## Capture Layout
 
@@ -81,7 +82,8 @@ data\metal\mug_metal_5s_50hz_09-10-2026_120000.csv
 data\metal\mug_metal_5s_50hz_09-10-2026_120000.json
 ```
 
-5. Filtering and feature extraction run automatically after successful captures.
+Filtering and feature extraction run automatically after successful captures.
+
 ## Data Workflow
 
 Use this order:
@@ -93,7 +95,7 @@ Use this order:
 5. Filter successful raw captures.
 6. Extract features.
 7. Run the dataset report.
-Filter a raw capture manually when reprocessing an older run:
+8. Filter a raw capture manually when reprocessing an older run.
 9. Evaluate only on recordings not used for training.
 
 Controlled-area rules:
@@ -132,11 +134,13 @@ python .\wi-sense\tool\dataset_report.py --data-dir .\data
 Train the guarded baseline model:
 
 ```powershell
-python .\wi-sense\tool\train_classifier.py --data-dir .\data --output .\model.json
+python .\wi-sense\tool\train_classifier.py --data-dir .\data\train --test-data-dir .\data\test --output .\model.json
 ```
 
 Training is blocked until valid `metal` and `non_metal` captures and feature
-files exist. Do not use `empty` or `other` as classifier classes.
+files exist in both separate directories. Evaluation accuracy and a confusion
+matrix are stored in the model metadata. Do not use `empty` or `other` as
+classifier classes.
 
 ## Current Metadata
 
@@ -156,7 +160,9 @@ New metadata uses schema version 2:
 ```
 
 A valid training capture requires a matching CSV, samples greater than zero,
-`capture_status` equal to `success`, and zero transmitter failures.
+`capture_status` equal to `success`, zero transmitter failures, matching
+transmitter/receiver counts, successful processing, and a matching feature
+file.
 
 ## PC And Future TFT
 
@@ -208,7 +214,9 @@ tested model exists.
 
 ## Related Files
 
-- `STORAGE.md`: storage schema and historical change log.
+- `COMMANDS.md`: runnable commands, collection steps, and implementation plan.
+- `STORAGE.md`: storage schema, metadata, and derived-file rules.
+- `CHANGELOG.md`: permanent record of project changes.
 - `receiver/README.md`: receiver build/upload note.
 - `transmitter/README.md`: transmitter build/upload note.
 - `tool/DATA_COLLECTION.md`: short collection reference.

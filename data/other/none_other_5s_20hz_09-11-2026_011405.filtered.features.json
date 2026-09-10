@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_file": "data\\other\\none_other_5s_20hz_09-11-2026_011405.filtered.csv",
+  "frames": 100,
+  "macs": [
+    "5c:01:3b:6b:b0:95"
+  ],
+  "rssi": {
+    "count": 100,
+    "mean": -43.13,
+    "std": 2.234525,
+    "min": -48.0,
+    "max": -37.0
+  },
+  "mean_amplitude": {
+    "count": 100,
+    "mean": 16.41717,
+    "std": 6.39843,
+    "min": 3.539303,
+    "max": 27.806006
+  },
+  "std_amplitude": {
+    "count": 100,
+    "mean": 11.675084,
+    "std": 2.527193,
+    "min": 7.987216,
+    "max": 18.826365
+  },
+  "max_amplitude": {
+    "count": 100,
+    "mean": 91.760558,
+    "std": 0.0,
+    "min": 91.760558,
+    "max": 91.760558
+  }
+}

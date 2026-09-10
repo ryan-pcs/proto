@@ -8,10 +8,11 @@ It contains the complete current collection workflow, including:
 - COM-port roles
 - Data-folder and object selection
 - Raw CSV/JSON naming
-- `Q` cancellation
+- deterministic timed-burst cleanup
 - Filtering and feature extraction
 - Dataset readiness checks
 - Classifier training requirements
 - Controlled-room rules
 
-`STORAGE.md` contains the metadata schema and historical change log.
+`STORAGE.md` contains the metadata schema and storage rules.
+`CHANGELOG.md` contains the permanent project change log.

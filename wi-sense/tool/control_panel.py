@@ -189,7 +189,6 @@ def run_panel():
                 f"Duration: {seconds:g} seconds",
                 f"Transmit rate: {rate} packets/second",
                 f"Saving to: data/{folder_name}/{object_name}_{label}_<seconds>_<hz>_<date>.csv",
-                "Press Q during collection to cancel and discard the capture.",
                 "Close serial monitors on both ports before continuing.",
             ])
             input("Press Enter to start collection...")

@@ -37,7 +37,6 @@ try:
     receiver_output = read_available(rx)
     print("RECEIVER")
     print(receiver_output[:20000])
-    print("ESP_NOW_RX_COUNT", receiver_output.count("ESP_NOW_RX"))
     print("CSI_DATA_COUNT", receiver_output.count("CSI_DATA,"))
 finally:
     tx.close()

@@ -1,0 +1,39 @@
+{
+  "schema_version": 2,
+  "run_id": "kk_other_20s_15hz_09-11-2026_020746",
+  "category": "other",
+  "object_name": "kk",
+  "description": "custom category",
+  "duration_ms": 20000,
+  "rate_hz": 15,
+  "channel": 11,
+  "transmitter_port": "COM3",
+  "receiver_port": "COM4",
+  "transmitter_baud": 115200,
+  "receiver_baud": 921600,
+  "receiver_capture_armed": true,
+  "started_at": "2026-09-10T18:07:46.452843+00:00",
+  "command_sent_at": "2026-09-10T18:07:47.617460+00:00",
+  "finished_at": "2026-09-10T18:08:12.727578+00:00",
+  "samples": 290,
+  "transmitter_log": [
+    "BURST_START,duration_ms=20000,rate_hz=15",
+    "BURST_END,packets=290,success=290,fail=0"
+  ],
+  "receiver_connected": true,
+  "receiver_log": [
+    "================ CSI RECV ================"
+  ],
+  "receiver_capture_stopped": false,
+  "receiver_queue_drops": 0,
+  "transmitter_packets": 290,
+  "transmitter_failures": 0,
+  "complete": true,
+  "raw_data_stored": true,
+  "sample_coverage_ratio": 1.0,
+  "sample_coverage_acceptable": true,
+  "sample_count_matches_transmitter": true,
+  "processing_status": "not_run",
+  "derived_files": [],
+  "capture_status": "partial"
+}

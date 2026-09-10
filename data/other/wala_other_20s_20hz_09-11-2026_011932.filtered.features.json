@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_file": "data\\other\\wala_other_20s_20hz_09-11-2026_011932.filtered.csv",
+  "frames": 400,
+  "macs": [
+    "5c:01:3b:6b:b0:95"
+  ],
+  "rssi": {
+    "count": 400,
+    "mean": -40.6675,
+    "std": 2.355195,
+    "min": -45.0,
+    "max": -36.0
+  },
+  "mean_amplitude": {
+    "count": 400,
+    "mean": 16.031946,
+    "std": 5.773183,
+    "min": 4.269497,
+    "max": 27.913377
+  },
+  "std_amplitude": {
+    "count": 400,
+    "mean": 11.994984,
+    "std": 2.641499,
+    "min": 7.978785,
+    "max": 20.277557
+  },
+  "max_amplitude": {
+    "count": 400,
+    "mean": 91.760558,
+    "std": 0.0,
+    "min": 91.760558,
+    "max": 91.760558
+  }
+}

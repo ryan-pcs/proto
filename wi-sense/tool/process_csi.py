@@ -40,6 +40,8 @@ def parse_rows(input_csv):
                 numeric_values = [float(value) for value in values]
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
+            if len(numeric_values) < 2:
+                continue
             rows.append((row, numeric_values))
     if not rows:
         raise ValueError("input contains no valid CSI rows")

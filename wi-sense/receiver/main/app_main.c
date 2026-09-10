@@ -24,6 +24,8 @@
 #include "esp_netif.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/portmacro.h"
 #include "freertos/task.h"
 #include "lwip/ip4_addr.h"
 
@@ -40,9 +42,9 @@
 #define CONFIG_WIFI_BANDWIDTH           WIFI_BW_HT20
 #endif
 
-#define CONFIG_ESP_NOW_PHYMODE           WIFI_PHY_MODE_HT40
-#define CONFIG_ESP_NOW_RATE             WIFI_PHY_RATE_MCS0_LGI
 #define CONFIG_FORCE_GAIN                   0
+#define CSI_QUEUE_LENGTH                    2
+#define CSI_MAX_DATA_LENGTH                512
 
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 #define CSI_FORCE_LLTF                      0
@@ -60,6 +62,123 @@ static const char *TAG = "csi_recv";
 static volatile bool wifi_connected = false;
 static volatile bool csi_ready = false;
 static esp_netif_t *wifi_netif = NULL;
+static uint8_t transmitter_bssid[6] = {0};
+static volatile bool transmitter_bssid_ready = false;
+static volatile bool capture_enabled = false;
+static volatile uint32_t capture_frame_count = 0;
+static volatile uint32_t capture_queue_drops = 0;
+static QueueHandle_t csi_queue = NULL;
+static volatile bool csi_output_busy = false;
+static volatile bool csi_callback_busy = false;
+static portMUX_TYPE csi_state_mux = portMUX_INITIALIZER_UNLOCKED;
+
+typedef struct {
+    uint32_t id;
+    uint8_t mac[6];
+    uint16_t len;
+    uint8_t first_word_invalid;
+    int16_t data[CSI_MAX_DATA_LENGTH];
+    wifi_pkt_rx_ctrl_t rx_ctrl;
+    uint8_t agc_gain;
+    int8_t fft_gain;
+} csi_frame_t;
+
+static void refresh_transmitter_bssid(void)
+{
+    wifi_ap_record_t ap_info;
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+        memcpy(transmitter_bssid, ap_info.bssid, sizeof(transmitter_bssid));
+        transmitter_bssid_ready = true;
+        ets_printf("CSI_SOURCE_BSSID=" MACSTR "\n", MAC2STR(transmitter_bssid));
+    } else {
+        transmitter_bssid_ready = false;
+        ets_printf("CSI_SOURCE_BSSID_UNAVAILABLE\n");
+    }
+}
+
+static void emit_csi_frame(const csi_frame_t *frame)
+{
+    if (frame->id == 0) {
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+        ets_printf("================ CSI RECV ================\n");
+        ets_printf("type,id,mac,rssi,rate,noise_floor,fft_gain,agc_gain,channel,local_timestamp,sig_len,rx_format,len,first_word,data\n");
+#else
+        ets_printf("================ CSI RECV ================\n");
+        ets_printf("type,id,mac,rssi,rate,sig_mode,mcs,bandwidth,smoothing,not_sounding,aggregation,stbc,fec_coding,sgi,noise_floor,ampdu_cnt,channel,secondary_channel,local_timestamp,ant,sig_len,sig_mode,len,first_word,data\n");
+#endif
+    }
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+    ets_printf("CSI_DATA,%lu," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
+               (unsigned long)frame->id, MAC2STR(frame->mac), frame->rx_ctrl.rssi,
+               frame->rx_ctrl.rate, frame->rx_ctrl.noise_floor, frame->fft_gain,
+               frame->agc_gain, frame->rx_ctrl.channel, frame->rx_ctrl.timestamp,
+               frame->rx_ctrl.sig_len, frame->rx_ctrl.cur_bb_format);
+#else
+    ets_printf("CSI_DATA,%lu," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+               (unsigned long)frame->id, MAC2STR(frame->mac), frame->rx_ctrl.rssi,
+               frame->rx_ctrl.rate, frame->rx_ctrl.sig_mode, frame->rx_ctrl.mcs,
+               frame->rx_ctrl.cwb, frame->rx_ctrl.smoothing, frame->rx_ctrl.not_sounding,
+               frame->rx_ctrl.aggregation, frame->rx_ctrl.stbc, frame->rx_ctrl.fec_coding,
+               frame->rx_ctrl.sgi, frame->rx_ctrl.noise_floor, frame->rx_ctrl.ampdu_cnt,
+               frame->rx_ctrl.channel, frame->rx_ctrl.secondary_channel,
+               frame->rx_ctrl.timestamp, frame->rx_ctrl.ant, frame->rx_ctrl.sig_len,
+               frame->rx_ctrl.sig_mode);
+#endif
+    ets_printf(",%d,%d,\"[%d", frame->len, frame->first_word_invalid, frame->data[0]);
+    for (int index = 1; index < frame->len; index++) {
+        ets_printf(",%d", frame->data[index]);
+    }
+    ets_printf("]\"\n");
+}
+
+static void csi_output_task(void *argument)
+{
+    (void)argument;
+    csi_frame_t frame;
+    while (true) {
+        portENTER_CRITICAL(&csi_state_mux);
+        csi_output_busy = true;
+        portEXIT_CRITICAL(&csi_state_mux);
+        if (xQueueReceive(csi_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
+            emit_csi_frame(&frame);
+        }
+        portENTER_CRITICAL(&csi_state_mux);
+        csi_output_busy = false;
+        portEXIT_CRITICAL(&csi_state_mux);
+    }
+}
+
+void receiver_capture_start(void)
+{
+    portENTER_CRITICAL(&csi_state_mux);
+    capture_enabled = false;
+    portEXIT_CRITICAL(&csi_state_mux);
+    xQueueReset(csi_queue);
+    capture_queue_drops = 0;
+    capture_frame_count = 0;
+    portENTER_CRITICAL(&csi_state_mux);
+    capture_enabled = true;
+    portEXIT_CRITICAL(&csi_state_mux);
+}
+
+bool receiver_capture_stop(void)
+{
+    portENTER_CRITICAL(&csi_state_mux);
+    capture_enabled = false;
+    portEXIT_CRITICAL(&csi_state_mux);
+    for (int wait_ms = 0; wait_ms < 3000; wait_ms++) {
+        if (!csi_callback_busy && !csi_output_busy && uxQueueMessagesWaiting(csi_queue) == 0) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return !csi_callback_busy && !csi_output_busy && uxQueueMessagesWaiting(csi_queue) == 0;
+}
+
+uint32_t receiver_capture_queue_drops(void)
+{
+    return capture_queue_drops;
+}
 
 bool receiver_is_connected(void)
 {
@@ -81,10 +200,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 
     if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_connected = false;
+        transmitter_bssid_ready = false;
         esp_wifi_connect();
     } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
         wifi_connected = true;
         ets_printf("WiFi connected to %s\n", CSI_TX_SSID);
+        refresh_transmitter_bssid();
     }
 }
 
@@ -180,19 +301,38 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
         ets_printf("CSI_INVALID,count=%d\n", ++rejected_count);
         return;
     }
+    if (info->len < 2) {
+        ets_printf("CSI_INVALID,count=%d\n", ++rejected_count);
+        return;
+    }
+    if (!transmitter_bssid_ready || memcmp(info->mac, transmitter_bssid, sizeof(transmitter_bssid)) != 0) {
+        return;
+    }
+    portENTER_CRITICAL(&csi_state_mux);
+    if (!capture_enabled) {
+        portEXIT_CRITICAL(&csi_state_mux);
+        return;
+    }
+    csi_callback_busy = true;
+    portEXIT_CRITICAL(&csi_state_mux);
 
     const wifi_pkt_rx_ctrl_t *rx_ctrl = &info->rx_ctrl;
-    static int s_count = 0;
     float compensate_gain = 1.0f;
+    csi_frame_t frame = {0};
+    frame.id = capture_frame_count;
+    memcpy(frame.mac, info->mac, sizeof(frame.mac));
+    frame.len = info->len > CSI_MAX_DATA_LENGTH ? CSI_MAX_DATA_LENGTH : info->len;
+    frame.first_word_invalid = info->first_word_invalid;
+    frame.rx_ctrl = *rx_ctrl;
     static uint8_t agc_gain = 0;
     static int8_t fft_gain = 0;
 #if CONFIG_GAIN_CONTROL
     static uint8_t agc_gain_baseline = 0;
     static int8_t fft_gain_baseline = 0;
     esp_csi_gain_ctrl_get_rx_gain(rx_ctrl, &agc_gain, &fft_gain);
-    if (s_count < 100) {
+    if (capture_frame_count < 100) {
         esp_csi_gain_ctrl_record_rx_gain(agc_gain, fft_gain);
-    } else if (s_count == 100) {
+    } else if (capture_frame_count == 100) {
         esp_csi_gain_ctrl_get_rx_gain_baseline(&agc_gain_baseline, &fft_gain_baseline);
 #if CONFIG_FORCE_GAIN
         esp_csi_gain_ctrl_set_rx_force_gain(agc_gain_baseline, fft_gain_baseline);
@@ -202,51 +342,37 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     esp_csi_gain_ctrl_get_gain_compensation(&compensate_gain, agc_gain, fft_gain);
     (void)compensate_gain;
 #endif
-
-    uint32_t rx_id = (uint32_t)s_count;
-#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
-    if (!s_count) {
-        ets_printf("================ CSI RECV ================\n");
-        ets_printf("type,seq,mac,rssi,rate,noise_floor,fft_gain,agc_gain,channel,local_timestamp,sig_len,rx_format,len,first_word,data\n");
+    frame.agc_gain = agc_gain;
+    frame.fft_gain = fft_gain;
+    for (int index = 0; index < frame.len; index++) {
+        frame.data[index] = (int16_t)(compensate_gain * info->buf[index]);
     }
-
-    ets_printf("CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
-               rx_id, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
-               rx_ctrl->noise_floor, fft_gain, agc_gain,  rx_ctrl->channel,
-               rx_ctrl->timestamp, rx_ctrl->sig_len, rx_ctrl->cur_bb_format);
-#else
-    if (!s_count) {
-        ets_printf("================ CSI RECV ================\n");
-        ets_printf("type,id,mac,rssi,rate,sig_mode,mcs,bandwidth,smoothing,not_sounding,aggregation,stbc,fec_coding,sgi,noise_floor,ampdu_cnt,channel,secondary_channel,local_timestamp,ant,sig_len,rx_format,len,first_word,data\n");
+    if (xQueueSend(csi_queue, &frame, 0) != pdTRUE) {
+        capture_queue_drops++;
+        portENTER_CRITICAL(&csi_state_mux);
+        csi_callback_busy = false;
+        portEXIT_CRITICAL(&csi_state_mux);
+        return;
     }
-
-    ets_printf("CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
-               rx_id, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate, rx_ctrl->sig_mode,
-               rx_ctrl->mcs, rx_ctrl->cwb, rx_ctrl->smoothing, rx_ctrl->not_sounding,
-               rx_ctrl->aggregation, rx_ctrl->stbc, rx_ctrl->fec_coding, rx_ctrl->sgi,
-               rx_ctrl->noise_floor, rx_ctrl->ampdu_cnt, rx_ctrl->channel, rx_ctrl->secondary_channel,
-               rx_ctrl->timestamp, rx_ctrl->ant, rx_ctrl->sig_len, rx_ctrl->sig_mode);
-
-#endif
-#if (CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61) && CSI_FORCE_LLTF
-    int16_t csi = ((int16_t)(((((uint16_t)info->buf[1]) << 8) | info->buf[0]) << 4) >> 4);
-    ets_printf(",%d,%d,\"[%d", (info->len - 2) / 2, info->first_word_invalid, (int16_t)(compensate_gain * csi));
-    for (int i = 2; i < (info->len - 2); i += 2) {
-        csi = ((int16_t)(((((uint16_t)info->buf[i + 1]) << 8) | info->buf[i]) << 4) >> 4);
-        ets_printf(",%d", (int16_t)(compensate_gain * csi));
-    }
-#else
-    ets_printf(",%d,%d,\"[%d", info->len, info->first_word_invalid, (int16_t)(compensate_gain * info->buf[0]));
-    for (int i = 1; i < info->len; i++) {
-        ets_printf(",%d", (int16_t)(compensate_gain * info->buf[i]));
-    }
-#endif
-    ets_printf("]\"\n");
-    s_count++;
+    capture_frame_count++;
+    portENTER_CRITICAL(&csi_state_mux);
+    csi_callback_busy = false;
+    portEXIT_CRITICAL(&csi_state_mux);
 }
 
 static void wifi_csi_init()
 {
+    csi_queue = xQueueCreate(CSI_QUEUE_LENGTH, sizeof(csi_frame_t));
+    if (!csi_queue) {
+        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    }
+    if (xTaskCreate(csi_output_task, "csi_output", 4096, NULL, 2, NULL) != pdPASS) {
+        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    }
+    wifi_promiscuous_filter_t promiscuous_filter = {
+        .filter_mask = WIFI_PROMIS_FILTER_MASK_DATA,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_promiscuous_filter(&promiscuous_filter));
     esp_err_t result = esp_wifi_set_promiscuous(true);
     ets_printf("PROMISCUOUS,result=%s\n", esp_err_to_name(result));
     ESP_ERROR_CHECK(result);
@@ -333,6 +459,7 @@ void receiver_init()
     if (!wifi_connected) {
         ets_printf("WIFI_CONNECT_TIMEOUT,ssid=%s\n", CSI_TX_SSID);
     }
+    refresh_transmitter_bssid();
 
     wifi_csi_init();
     ets_printf("CSI ready; waiting for UDP traffic from %s\n", CSI_TX_SSID);

@@ -1,23 +1,18 @@
 /*
- * ESP-NOW CSI Transmitter
+ * UDP CSI Transmitter
  * Arduino Framework Version for ESP32 WROOM 32
  */
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <esp_now.h>
-#include <esp_wifi.h>
 #include <string.h>
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL   11
-#define CONFIG_ESP_NOW_RATE                WIFI_PHY_RATE_MCS0_LGI
 #define CONFIG_DEFAULT_SEND_FREQUENCY      100
 #define CONFIG_DEFAULT_BURST_DURATION_MS   5000
 #define CONFIG_MAX_BURST_DURATION_MS       60000
 #define CONFIG_MAX_SEND_FREQUENCY          1000
 
-static const uint8_t CONFIG_CSI_SEND_MAC[] = {0xc6, 0x96, 0xce, 0x25, 0xa0, 0x09};
-static esp_now_peer_info_t peer;
 static bool burst_active = false;
 static uint32_t burst_started_at = 0;
 static uint32_t burst_duration_ms = 0;
@@ -26,6 +21,7 @@ static uint32_t burst_packet_count = 0;
 static volatile uint32_t burst_success_count = 0;
 static volatile uint32_t burst_fail_count = 0;
 static uint32_t next_send_at_us = 0;
+static bool wifi_initialized = false;
 static char command_buffer[80];
 static size_t command_length = 0;
 static WiFiUDP udp;
@@ -34,7 +30,7 @@ static const uint16_t CSI_PORT = 4210;
 
 void print_status() {
     Serial.print("STATUS,");
-    Serial.print(burst_active ? "RUNNING" : "IDLE");
+    Serial.print(!wifi_initialized ? "FAULT" : (burst_active ? "RUNNING" : "IDLE"));
     Serial.print(",packets=");
     Serial.print(burst_packet_count);
     Serial.print(",success=");
@@ -86,6 +82,10 @@ void handle_command(const char *command) {
     unsigned int frequency_hz = 0;
 
     if (strncmp(command, "START", 5) == 0) {
+        if (!wifi_initialized) {
+            Serial.println("ERROR,wifi_not_ready");
+            return;
+        }
         int values = sscanf(command, "START %lu %u", &duration_ms, &frequency_hz);
         if (values == 0) {
             duration_ms = CONFIG_DEFAULT_BURST_DURATION_MS;
@@ -123,48 +123,25 @@ void process_serial_commands() {
     }
 }
 
-void on_data_sent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-    (void)mac_addr;
-    if (status == ESP_NOW_SEND_SUCCESS) {
-        burst_success_count++;
-    } else {
-        burst_fail_count++;
-    }
-}
-
-void wifi_init() {
+bool wifi_init() {
     WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(
+    if (!WiFi.softAPConfig(
         IPAddress(192, 168, 4, 1),
         IPAddress(192, 168, 4, 1),
         IPAddress(255, 255, 255, 0)
-    );
-    WiFi.softAP("CSI_TX", "csi12345", CONFIG_LESS_INTERFERENCE_CHANNEL, false, 1);
-    udp.begin(CSI_PORT);
+    )) {
+        return false;
+    }
+    if (!WiFi.softAP("CSI_TX", "csi12345", CONFIG_LESS_INTERFERENCE_CHANNEL, false, 1)) {
+        return false;
+    }
+    if (!udp.begin(CSI_PORT)) {
+        return false;
+    }
 
     Serial.print("WiFi Initialized on channel: ");
     Serial.println(CONFIG_LESS_INTERFERENCE_CHANNEL);
-}
-
-void wifi_esp_now_init() {
-    if (esp_now_init() != ESP_OK) {
-        Serial.println("Error initializing ESP-NOW");
-        return;
-    }
-
-    esp_now_set_pmk((uint8_t *)"pmk1234567890123");
-    memset(&peer, 0, sizeof(peer));
-    peer.channel = CONFIG_LESS_INTERFERENCE_CHANNEL;
-    peer.ifidx = WIFI_IF_STA;
-    peer.encrypt = false;
-    memset(peer.peer_addr, 0xff, 6);
-
-    if (esp_now_add_peer(&peer) != ESP_OK) {
-        Serial.println("Failed to add broadcast peer");
-    }
-    esp_now_register_send_cb(on_data_sent);
-
-    Serial.println("Wi-Fi UDP transmitter ready,ssid=CSI_TX");
+    return true;
 }
 
 void setup() {
@@ -174,15 +151,12 @@ void setup() {
     Serial.println("\n\n================ CSI SEND ================");
     Serial.println("Initializing ESP32 for UDP CSI transmission");
 
-    wifi_init();
-    delay(100);
-    Serial.print("MAC: ");
-    for (int i = 0; i < 6; i++) {
-        if (CONFIG_CSI_SEND_MAC[i] < 16) Serial.print("0");
-        Serial.print(CONFIG_CSI_SEND_MAC[i], HEX);
-        if (i < 5) Serial.print(":");
+    wifi_initialized = wifi_init();
+    if (!wifi_initialized) {
+        Serial.println("ERROR,wifi_initialization_failed");
+        return;
     }
-    Serial.println();
+    delay(100);
     Serial.println("READY,commands=START duration_ms rate_hz|STOP|STATUS,max_duration_ms=60000,max_rate_hz=1000,mode=udp_ap");
 }
 
@@ -195,20 +169,28 @@ void loop() {
 
     if (burst_active && (int32_t)(micros() - next_send_at_us) >= 0) {
         uint32_t sequence = burst_packet_count;
-        udp.beginPacket(CSI_RECEIVER, CSI_PORT);
-        udp.write((const uint8_t *)&sequence, sizeof(sequence));
-        int result = udp.endPacket();
+        int begin_result = udp.beginPacket(CSI_RECEIVER, CSI_PORT);
+        size_t written = begin_result == 1
+            ? udp.write((const uint8_t *)&sequence, sizeof(sequence))
+            : 0;
+        int result = (begin_result == 1 && written == sizeof(sequence))
+            ? udp.endPacket()
+            : 0;
         if (result == 1) {
             burst_success_count++;
         } else {
             burst_fail_count++;
         }
-        if (result != 1) {
+        if (begin_result != 1 || written != sizeof(sequence) || result != 1) {
             Serial.print("ERROR,send=");
-            Serial.println(result);
+            Serial.print(result);
+            Serial.print(",begin=");
+            Serial.print(begin_result);
+            Serial.print(",write=");
+            Serial.println(written);
         }
         burst_packet_count++;
-        next_send_at_us += 1000000UL / burst_frequency_hz;
+        next_send_at_us = micros() + 1000000UL / burst_frequency_hz;
     }
 
     delay(1);

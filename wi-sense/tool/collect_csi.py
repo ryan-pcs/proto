@@ -14,7 +14,7 @@ def parse_args():
     parser.add_argument("-p", "--port", required=True, help="Receiver serial port, for example COM3")
     parser.add_argument("-o", "--output", default="data/csi_collection.csv", help="CSV output path")
     parser.add_argument("-l", "--log", default=None, help="Log output path; defaults beside the CSV")
-    parser.add_argument("--baud", type=int, default=115200, help="Receiver baud rate")
+    parser.add_argument("--baud", type=int, default=921600, help="Receiver baud rate")
     return parser.parse_args()
 
 
