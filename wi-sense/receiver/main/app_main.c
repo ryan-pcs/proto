@@ -58,11 +58,17 @@
 
 static const char *TAG = "csi_recv";
 static volatile bool wifi_connected = false;
+static volatile bool csi_ready = false;
 static esp_netif_t *wifi_netif = NULL;
 
 bool receiver_is_connected(void)
 {
     return wifi_connected;
+}
+
+bool receiver_is_ready(void)
+{
+    return csi_ready;
 }
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -298,6 +304,7 @@ static void wifi_csi_init()
     result = esp_wifi_set_csi(true);
     ets_printf("CSI_ENABLE,result=%s\n", esp_err_to_name(result));
     ESP_ERROR_CHECK(result);
+    csi_ready = true;
 }
 
 void receiver_init()

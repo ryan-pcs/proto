@@ -3,6 +3,7 @@
 from argparse import Namespace
 import time
 import re
+import textwrap
 
 from collect_burst import collect
 from control_transmitter import MAX_RATE_HZ, MAX_SECONDS, send_command
@@ -12,6 +13,7 @@ from serial.tools import list_ports
 
 
 LABELS = ("empty", "metal", "non_metal")
+DATA_FOLDERS = ("empty", "metal", "non_metal", "other")
 BOX_WIDTH = 62
 CLASSIFICATION_TEXT = {
     "empty": "empty environment",
@@ -45,28 +47,37 @@ def ask_number(prompt, minimum, maximum, default, cast):
         print(f"Use a value from {minimum} to {maximum}.")
 
 
-def choose_label():
-    print("Object / environment label:")
-    for index, label in enumerate(LABELS, start=1):
-        print(f"  {index}. {label} ({CLASSIFICATION_TEXT[label]})")
+def choose_data_folder():
+    print("Data folder:")
+    for index, folder in enumerate(DATA_FOLDERS, start=1):
+        print(f"  {index}. {folder}")
+    print("  5. Create new folder")
     while True:
-        choice = input("Select label [1]: ").strip() or "1"
-        if choice in {"1", "2", "3"}:
-            label = LABELS[int(choice) - 1]
-            print(f"Selected: {label} => {CLASSIFICATION_TEXT[label]}")
-            return label
-        print("Choose 1, 2, or 3.")
+        choice = input("Choose folder [1]: ").strip() or "1"
+        if choice in {"1", "2", "3", "4"}:
+            return DATA_FOLDERS[int(choice) - 1]
+        if choice == "5":
+            while True:
+                value = input("New data folder name: ").strip()
+                safe_value = re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_-")
+                if safe_value and safe_value not in DATA_FOLDERS:
+                    return safe_value
+                print("Use a new folder name such as test_01.")
+        else:
+            print("Choose 1 through 5.")
 
 
-def ask_run_name():
+def ask_object_name(label):
+    default = "none" if label == "empty" else None
     while True:
-        value = input("Run name [auto]: ").strip()
-        if not value:
-            return None
+        prompt = f"Object name [{default}]: " if default else "Object name: "
+        value = input(prompt).strip()
+        if not value and default:
+            return default
         safe_value = re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_-")
         if safe_value:
             return safe_value
-        print("Use letters, numbers, spaces, hyphens, or underscores.")
+        print("Enter a name such as mug, keys, or none.")
 
 
 def box(title, lines):
@@ -74,7 +85,11 @@ def box(title, lines):
     print(f"| {title:<{BOX_WIDTH - 2}} |")
     print("+" + "-" * BOX_WIDTH + "+")
     for line in lines:
-        print(f"| {line[:BOX_WIDTH - 2]:<{BOX_WIDTH - 2}} |")
+        wrapped_lines = textwrap.wrap(
+            str(line), width=BOX_WIDTH - 4, break_long_words=True, break_on_hyphens=False
+        ) or [""]
+        for wrapped_line in wrapped_lines:
+            print(f"| {wrapped_line:<{BOX_WIDTH - 2}} |")
     print("+" + "-" * BOX_WIDTH + "+")
 
 
@@ -116,17 +131,18 @@ def detect_board_ports():
     return transmitter, receiver
 
 
-def collect_burst_from_panel(transmitter, receiver, seconds, rate, label, baud, run_name):
+def collect_burst_from_panel(transmitter, receiver, seconds, rate, label, object_name, baud, folder_name):
     collect(Namespace(
         transmitter=transmitter,
         receiver=receiver,
         label=label,
+        object_name=object_name,
         duration_ms=round(seconds * 1000),
         rate_hz=rate,
         output_dir="data",
         baud=baud,
         receiver_baud="auto",
-        run_id=run_name,
+        run_id=folder_name,
     ))
 
 
@@ -148,7 +164,7 @@ def run_panel():
             f"Transmitter: {port}    Receiver: {receiver_port}",
             "1  Check transmitter status",
             "2  Collect labeled CSI burst",
-            "3  Stop transmitter burst",
+            "3  Stop transmitter burst (idle/manual)",
             "4  List serial ports",
             "5  Change board ports",
             "0  Exit",
@@ -163,19 +179,22 @@ def run_panel():
         elif choice == "2":
             seconds = ask_number("Duration in seconds", 0.1, MAX_SECONDS, 5, float)
             rate = ask_number("Packets per second", 1, MAX_RATE_HZ, 50, int)
-            label = choose_label()
-            run_name = ask_run_name()
+            folder_name = choose_data_folder()
+            label = folder_name
+            object_name = ask_object_name(label)
             box("BURST SETUP", [
-                f"Label: {label} ({CLASSIFICATION_TEXT[label]})",
-                f"Run name: {run_name or 'automatic'}",
+                f"Category: {label} ({CLASSIFICATION_TEXT.get(label, 'custom category')})",
+                f"Object: {object_name}",
+                f"Folder: data/{folder_name}/",
                 f"Duration: {seconds:g} seconds",
                 f"Transmit rate: {rate} packets/second",
-                f"Saving to: data/{label}_<timestamp>.csv and .json",
+                f"Saving to: data/{folder_name}/{object_name}_{label}_<seconds>_<hz>_<date>.csv",
+                "Press Q during collection to cancel and discard the capture.",
                 "Close serial monitors on both ports before continuing.",
             ])
             input("Press Enter to start collection...")
             try:
-                collect_burst_from_panel(port, receiver_port, seconds, rate, label, baud, run_name)
+                collect_burst_from_panel(port, receiver_port, seconds, rate, label, object_name, baud, folder_name)
             except (OSError, serial.SerialException, RuntimeError, ValueError) as error:
                 box("COLLECTION FAILED", [str(error), "No trustworthy CSI result was recorded."])
         elif choice == "3":

@@ -32,16 +32,17 @@ For normal collection, choose `2`, enter the duration and rate, choose
 `empty`, `metal`, or `non_metal`, enter an optional run name, and press Enter.
 The collector prepares the receiver before it sends the transmitter burst.
 
-Before collection, close any serial monitor using COM3 or COM4. Only one
+Before collection, close any serial monitor using the transmitter or receiver
+port. Only one
 program can use a serial port at a time.
 
 ## Current Truth
 
-The boards currently appeared as:
+The boards most recently appeared as:
 
 ```text
-COM3 = transmitter
-COM4 = receiver
+COM6 = transmitter
+COM3 = receiver
 ```
 
 COM numbers are not permanent. The panel probes ports with `STATUS` and falls
@@ -311,8 +312,9 @@ data/<run_name>_<YYYYMMDD_HHMMSS>.csv
 data/<run_name>_<YYYYMMDD_HHMMSS>.json
 ```
 
-Failed or empty runs are automatically moved by `collect_burst.py` when their
-sample count is zero. They are stored in:
+Failed, partial, or empty runs are automatically moved by `collect_burst.py`
+when the burst is incomplete, transmitter failures are present, or the sample
+count is zero. They are stored in:
 
 ```text
 data/archive/empty_runs/
@@ -341,6 +343,15 @@ Invalid result:
 Receiver CSI samples: 0
 Capture status: no_csi_received
 ```
+
+Partial result:
+
+```text
+Capture status: partial
+```
+
+Do not use partial results for training, even when their sample count is
+greater than zero.
 
 `stored` in older JSON files only meant that metadata was written. New metadata
 uses `raw_data_stored` and `capture_status` so an empty CSV is not reported as a

@@ -1,0 +1,31 @@
+{
+    "configurations": [
+        {
+            "name": "Wi-Sense ESP32",
+            "compilerPath": "${env:USERPROFILE}/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-gcc.exe",
+            "configurationProvider": "platformio",
+            "compilerArgs": [
+                "-mlongcalls"
+            ],
+            "includePath": [
+                "${workspaceFolder}/wi-sense/receiver/main",
+                "${workspaceFolder}/wi-sense/transmitter/main",
+                "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/cores/esp32",
+                "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/variants/esp32",
+                "${env:USERPROFILE}/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/**",
+                "${env:USERPROFILE}/.platformio/packages/toolchain-xtensa-esp32/xtensa-esp32-elf/include",
+                "${env:USERPROFILE}/.platformio/packages/toolchain-xtensa-esp32/lib/gcc/xtensa-esp32-elf/8.4.0/include",
+                "${env:USERPROFILE}/.platformio/packages/toolchain-xtensa-esp32/lib/gcc/xtensa-esp32-elf/8.4.0/include-fixed"
+            ],
+            "defines": [
+                "ARDUINO=10819",
+                "ARDUINO_ESP32_DEV",
+                "ESP32"
+            ],
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "windows-gcc-x64"
+        }
+    ],
+    "version": 4
+}
