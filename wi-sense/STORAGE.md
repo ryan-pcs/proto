@@ -1,5 +1,8 @@
 # CSI Data Storage
 
+Read [PROJECT_GUIDE.md](PROJECT_GUIDE.md) first for the current workflow.
+This file defines the storage schema and keeps the historical change log.
+
 This is the storage format for the prototype. It is ready for future identification, but the current project does not identify objects yet.
 
 ## Where files go
@@ -37,6 +40,19 @@ The CSV contains complete receiver `CSI_DATA` rows. The collector lightly
 parses serial lines into CSV columns, but it does not filter, smooth, normalize,
 or classify CSI values. Do not edit raw data manually. A run with zero rows is
 invalid for training.
+
+`process_csi.py` creates derived `.filtered.csv` files using a temporal median
+filter and moving average. These files are analysis outputs, not replacements
+for raw captures. Variable CSI row lengths are preserved; missing positions are
+filled with per-position medians before filtering and trimmed back afterward.
+
+`extract_features.py` creates `.features.json` summaries from filtered files.
+Feature files are derived analysis artifacts and are not classifier results.
+
+`dataset_report.py` validates capture metadata and reports training readiness.
+`train_classifier.py` is a guarded baseline trainer; it refuses to create a
+model until both `metal` and `non_metal` have valid captures and feature files.
+No model is created from `empty` or `other` data.
 
 ## JSON file
 
@@ -108,3 +124,15 @@ Keep this record current when code, firmware, or stored data changes so a future
 - Added `Q` cancellation during active collection. Cancellation stops the transmitter and deletes the temporary CSV without writing JSON metadata.
 - Removed the duplicate category prompt from the control panel. The selected data-folder name now supplies the JSON `category` and filename category automatically.
 - Changed failed-capture archiving to use `data/archive/<selected-folder>/` so failures retain the folder context instead of all being placed in `empty_runs`.
+- Documented the standalone metal-detector roadmap in `COMMANDS.md`; classifier labels and confidence values remain future outputs, not current metadata.
+- Added the dependency-free offline CSI filtering stage. It was validated on 402 real frames without changing the raw capture; controlled-room testing remains necessary before classifier evaluation.
+- Added the research system design, controlled-area rules, required parts, and research question to `COMMANDS.md`. TFT, classifier, and microSD outputs remain future stages.
+- Clarified that the 4-inch TFT is the planned physical control panel as well as the result display; the Python terminal panel is its current development substitute.
+- Defined mutually exclusive PC and TFT controller modes so the future LCD cannot compete for the transmitter command port. The current TFT command link is not implemented yet.
+- Documented the standalone boot architecture: receiver ESP32 hosts the TFT, CSI, preprocessing, and future classifier, then controls the transmitter over a future Wi-Fi command endpoint. Python remains development-only.
+- Added dependency-free offline feature extraction and validated it on 402 filtered frames. No classifier is trained yet.
+- Added dataset readiness reporting and a guarded baseline trainer. Current report: four valid `other` runs, no valid `metal` or `non_metal` runs, training blocked as intended.
+- Added the next implementation plan to `COMMANDS.md` and synchronized the collection workflow documentation. The current priority remains controlled class data, then automatic preprocessing, then separate training and testing.
+- Added the standalone data/RAM plan: the receiver processes CSI in small windows, the TFT displays control/results, microSD stores optional data, and the PC is used for development training only.
+- Consolidated the active project instructions into `PROJECT_GUIDE.md`; `COMMANDS.md` and `tool/DATA_COLLECTION.md` are now short pointers to prevent conflicting documentation.
+- Recorded the signal-loss measurement limitation: transmitter send counters and receiver CSI callback counts are different measurements, so exact end-to-end packet loss needs a future receiver UDP sequence counter.

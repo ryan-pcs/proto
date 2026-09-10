@@ -8,6 +8,10 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import serial
+
+from extract_features import extract
+from process_csi import process
 
 import serial
 
@@ -273,12 +277,25 @@ def collect(args):
     metadata["transmitter_failures"] = transmitter_failures
     metadata["complete"] = burst_end_seen
     metadata["raw_data_stored"] = valid_count > 0
+    metadata["processing_status"] = "not_run"
+    metadata["derived_files"] = []
     if valid_count == 0:
         metadata["capture_status"] = "no_csi_received"
     elif not burst_end_seen or transmitter_failures > 0:
         metadata["capture_status"] = "partial"
     else:
         metadata["capture_status"] = "success"
+        if metadata["capture_status"] == "success":
+            filtered_path = csv_path.with_name(f"{csv_path.stem}.filtered.csv")
+            features_path = filtered_path.with_name(f"{filtered_path.stem}.features.json")
+            try:
+                process(csv_path, filtered_path, 3)
+                extract(filtered_path, features_path)
+                metadata["processing_status"] = "success"
+                metadata["derived_files"] = [str(filtered_path), str(features_path)]
+            except (OSError, ValueError, json.JSONDecodeError) as error:
+                metadata["processing_status"] = "failed"
+                metadata["processing_error"] = str(error)
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     failed_capture = metadata["capture_status"] != "success"
     if failed_capture:
@@ -293,6 +310,7 @@ def collect(args):
         f"Receiver CSI samples: {valid_count}",
         f"Burst complete: {'yes' if burst_end_seen else 'no'}",
         f"Capture status: {metadata['capture_status']}",
+        f"Processing status: {metadata['processing_status']}",
         f"CSV saved: {csv_path}" if not failed_capture else "Failed files archived: yes",
         f"Metadata saved: {metadata_path}" if not failed_capture else f"Archive: {archive_dir}",
     ]

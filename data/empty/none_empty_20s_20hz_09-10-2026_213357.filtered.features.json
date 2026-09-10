@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_file": "data\\empty\\none_empty_20s_20hz_09-10-2026_213357.filtered.csv",
+  "frames": 402,
+  "macs": [
+    "5c:01:3b:6b:b0:95"
+  ],
+  "rssi": {
+    "count": 402,
+    "mean": -40.164179,
+    "std": 2.446016,
+    "min": -44.0,
+    "max": -34.0
+  },
+  "mean_amplitude": {
+    "count": 402,
+    "mean": 17.218965,
+    "std": 5.928788,
+    "min": 2.937134,
+    "max": 27.73147
+  },
+  "std_amplitude": {
+    "count": 402,
+    "mean": 12.171831,
+    "std": 2.57051,
+    "min": 6.807329,
+    "max": 18.633128
+  },
+  "max_amplitude": {
+    "count": 402,
+    "mean": 91.638744,
+    "std": 1.605883,
+    "min": 68.299992,
+    "max": 91.760558
+  }
+}
