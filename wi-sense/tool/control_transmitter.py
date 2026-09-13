@@ -1,4 +1,4 @@
-"""Terminal controller for the transmitter; commands map directly to a future LCD UI."""
+"""Terminal controller for the CSI transmitter."""
 
 import argparse
 import time

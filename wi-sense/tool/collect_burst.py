@@ -13,8 +13,6 @@ import serial
 from extract_features import extract
 from process_csi import process
 
-import serial
-
 
 LEGACY_HEADERS = [
     "type", "id", "mac", "rssi", "rate", "sig_mode", "mcs", "bandwidth",
@@ -180,7 +178,7 @@ def arm_receiver(receiver):
 def disarm_receiver(receiver, receiver_buffer, header, writer, receiver_log):
     receiver.write(b"CSI_CAPTURE_OFF\n")
     receiver.flush()
-    buffer = b""
+    buffer = receiver_buffer
     deadline = time.monotonic() + RECEIVER_CAPTURE_COMMAND_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         lines, buffer = read_complete_lines(receiver, buffer)

@@ -2,6 +2,16 @@
 
 Record every meaningful code, firmware, documentation, configuration, and stored-data change here. Add a dated entry whenever project behavior or project instructions change.
 
+## 2026-09-13
+
+- Removed the unused graphical CSI monitor `tool/csi_data_read_parse.py`; the terminal control panel and collection pipeline do not depend on it.
+- Fixed burst shutdown parsing so a partial receiver line already buffered before `CSI_CAPTURE_OFF` is preserved and completed instead of being discarded.
+- Removed a duplicate `serial` import from `tool/collect_burst.py` and removed stale LCD wording from `tool/control_transmitter.py`; terminal transmitter control remains unchanged.
+- Validation: all remaining tool Python files parse successfully and `git diff --check` reports no whitespace errors. The protected `display/` and `docs/` folders were not modified.
+- Hidden-bug remediation: offline CSI filtering now rejects non-finite values such as `NaN` and `Infinity`, matching live-capture validation and preventing invalid derived features.
+- Validation: mixed and all-invalid CSI reprocessing cases behave correctly; all remaining tool Python files parse successfully and focused editor diagnostics report no errors.
+- Moved the automatic ToF-triggered scan sequence, board responsibilities, validation gates, controller ownership, and protected display/docs boundaries into the existing root `COMMANDS.md`; no new Markdown file is used.
+
 ## 2026-09-10
 - Remediation completed: replaced exact packet/sample equality as the success gate with `sample_coverage_ratio` and `sample_coverage_acceptable`; the current threshold is 25%. Coverage above one is allowed because CSI callbacks can exceed UDP sends. The 240/500 run has 48% coverage and should be recollected under this policy rather than manually relabeled.
 - Follow-up finding: removing periodic receiver readiness output fixed UART contention but exposed a reconnect bug. After one capture, the receiver remains running and no longer emits boot readiness text, so the next collector attempt can time out despite a healthy receiver. Replace passive boot-text detection with an explicit status handshake.
