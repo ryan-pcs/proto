@@ -1,6 +1,7 @@
 #pragma once
 #include "display_driver.h"
 #include "ui_state.h"
+#include "storage.h"
 
 struct Button {
     int16_t x, y, w, h;
@@ -44,6 +45,8 @@ void drawGateResultFlash(Display& tft, const UiState& s, bool bright);
 void drawGateResultPrompt(Display& tft, const UiState& s);// bottom line only
 
 void drawAdmin(Display& tft, const UiState& s);
+void drawStats(Display& tft, const UiState& s, const ScanStats& stats);
+void drawReadyTally(Display& tft, const ScanStats& stats);  // small strip only
 
 // --- button layouts, shared between drawing and touch handling ---
 extern const Button BTN_LABEL_EMPTY;
@@ -86,4 +89,8 @@ extern const Button BTN_ADM_DWELL_UP;
 extern const Button BTN_ADM_SCAN_DN;
 extern const Button BTN_ADM_SCAN_UP;
 extern const Button BTN_ADM_TOUCH;
+extern const Button BTN_ADM_STATS;
 extern const Button BTN_ADM_BACK;
+
+extern const Button BTN_STATS_RESET;
+extern const Button BTN_STATS_BACK;

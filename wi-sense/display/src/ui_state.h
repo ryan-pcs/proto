@@ -57,7 +57,8 @@ enum ScreenId : uint8_t {
     SCR_ARMING,         // something is there - must hold still before scanning
     SCR_GATE_SCAN,      // scanning a bag
     SCR_GATE_RESULT,    // showing the answer, waiting for the bag to leave
-    SCR_ADMIN           // trigger settings, behind the SETUP button
+    SCR_ADMIN,          // trigger settings, behind the SETUP button
+    SCR_STATS           // how many bags, and how they came out
 };
 
 struct UiState {
