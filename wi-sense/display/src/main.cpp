@@ -56,6 +56,7 @@ static UiState    state;
 static ScreenId   screen = SCR_BOOT;
 static bool       needsRepaint = true;
 static CardInfo   cardInfo;
+static ScanStats  scanStats;
 static SensorInfo sensorInfo;
 
 // ---------------------------------------------------------------------------
@@ -271,7 +272,12 @@ static void printDiagnostics() {
     Serial.print("   card ");
     Serial.print(state.cardWorking ? "mounted" : "NOT mounted");
     Serial.print("   sensor ");
-    Serial.println(state.sensorWorking ? "ready" : "NOT found");
+    Serial.print(state.sensorWorking ? "ready" : "NOT found");
+    // Repeated here rather than only at start-up, because the start-up lines
+    // scroll past before a monitor can usually attach to this board.
+    Serial.print("   tally ");
+    Serial.print(scanStats.total);
+    Serial.println(scanStats.loaded ? " (on card)" : " (this session only)");
 }
 
 static void goTo(ScreenId next) {
@@ -375,6 +381,16 @@ void setup() {
         Serial.println(cardInfo.error);
     }
 
+    if (storageStatsLoad(scanStats)) {
+        Serial.print("[tally] ");
+        Serial.print(scanStats.total);
+        Serial.print(" scans on this card (");
+        Serial.print(scanStats.standIn);
+        Serial.println(" of them stand-in)");
+    } else {
+        Serial.println("[tally] no card - counts will be this session only");
+    }
+
     Serial.println("[sensor] starting...");
     bool sensorOk = sensorBegin(sensorInfo);
     state.sensorWorking = sensorOk;
@@ -469,7 +485,11 @@ void loop() {
     // -----------------------------------------------------------------------
     case SCR_READY: {
         setLights(true);
-        if (needsRepaint) { drawReady(tft, state); needsRepaint = false; }
+        if (needsRepaint) {
+            drawReady(tft, state);
+            drawReadyTally(tft, scanStats);
+            needsRepaint = false;
+        }
 
         if (pollSensor(now, 100)) {
             drawReadyDistance(tft, state);
@@ -542,9 +562,15 @@ void loop() {
         // No cancel path, matching the collection screen and the capture
         // firmware: a started scan always ends the same way.
         if (sinceEnter >= state.scanMs) {
-            const char* word = verdictWord(state.verdict);
-            char line[64];
-            snprintf(line, sizeof(line), "(sim) gate scan - stand-in result %s", word);
+            // "stand-in" is the detector's name until a real one exists, and
+            // it is written into every row and the totals. A count of invented
+            // answers must never be mistaken later for a record of real ones.
+            storageStatsRecord(scanStats, (uint8_t)state.verdict, state.confidence,
+                               state.distanceMm, "stand-in");
+
+            char line[72];
+            snprintf(line, sizeof(line), "(sim) gate scan %lu - stand-in result %s",
+                     (unsigned long)scanStats.total, verdictWord(state.verdict));
             storageLog(line);
             goTo(SCR_GATE_RESULT);
         }
@@ -614,6 +640,11 @@ void loop() {
             } else if (buttonHit(BTN_ADM_TOUCH, tx, ty)) {
                 logAction("TOUCH SETUP (touch)");
                 goTo(SCR_TOUCH_SETUP);
+                break;
+            } else if (buttonHit(BTN_ADM_STATS, tx, ty)) {
+                logAction("STATS (touch)");
+                saveGateSettings();
+                goTo(SCR_STATS);
                 break;
             } else if (buttonHit(BTN_ADM_BACK, tx, ty)) {
                 logAction("BACK (touch)");
@@ -758,6 +789,25 @@ void loop() {
             goTo(SCR_READY);
         } else if (!touchCalibrated && sinceEnter > AUTO_ADVANCE_MS + 2000) {
             logAction("back to home (timer - not calibrated)");
+            goTo(SCR_READY);
+        }
+        break;
+    }
+
+    case SCR_STATS: {
+        if (needsRepaint) { drawStats(tft, state, scanStats); needsRepaint = false; }
+
+        if (touchPressed && buttonHit(BTN_STATS_RESET, tx, ty)) {
+            // The history file is kept as /scans-old.csv rather than deleted,
+            // so pressing this cannot destroy a record by accident.
+            logAction("CLEAR COUNT (touch)");
+            storageStatsReset(scanStats);
+            storageLog("tally cleared - previous history kept as /scans-old.csv");
+            needsRepaint = true;
+        } else if (touchPressed && buttonHit(BTN_STATS_BACK, tx, ty)) {
+            logAction("BACK (touch)");
+            goTo(SCR_READY);
+        } else if (!touchCalibrated && sinceEnter > AUTO_ADVANCE_MS) {
             goTo(SCR_READY);
         }
         break;
