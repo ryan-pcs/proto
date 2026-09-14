@@ -29,7 +29,8 @@ enum ScreenId : uint8_t {
     SCR_SETTINGS,
     SCR_SCANNING,
     SCR_VERDICT,
-    SCR_MESSAGE
+    SCR_MESSAGE,
+    SCR_TOUCH_SETUP
 };
 
 struct UiState {
@@ -39,6 +40,19 @@ struct UiState {
     bool transmitterReady;
     bool cardPresent;
     uint8_t checksPassed;      // 0..4, used to know when to redraw
+
+    // The card check is real, unlike the three above it. cardWorking is set
+    // before the start-up screen appears; cardDetail is what to show beside it.
+    bool cardWorking;
+    char cardDetail[30];
+
+    // The distance sensor is a real check too. distanceMm is refreshed on the
+    // home screen so it can be watched while a hand is waved in front of it.
+    bool     sensorWorking;
+    bool     sensorPresent;
+    bool     sensorInRange;
+    uint16_t distanceMm;
+    char     sensorDetail[30];
 
     // --- the run being set up ---
     Category category;

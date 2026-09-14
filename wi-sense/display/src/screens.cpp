@@ -7,8 +7,9 @@
 // Button layouts. Defined once here so the drawing code and the touch code
 // can never disagree about where a button is.
 // ---------------------------------------------------------------------------
-const Button BTN_HOME_COLLECT  = {  30,  90, 200, 110, "COLLECT",   COL_ACCENT };
-const Button BTN_HOME_IDENTIFY = { 250,  90, 200, 110, "IDENTIFY",  COL_MUTED  };
+const Button BTN_HOME_COLLECT  = {  30,  90, 200, 110, "COLLECT",     COL_ACCENT };
+const Button BTN_HOME_IDENTIFY = { 250,  90, 200, 110, "IDENTIFY",    COL_MUTED  };
+const Button BTN_HOME_SENS     = { 165, 246, 150,  46, "TOUCH SETUP", COL_MUTED  };
 
 const Button BTN_LABEL_EMPTY    = {  20,  90, 140, 120, "EMPTY",     COL_ACCENT };
 const Button BTN_LABEL_METAL    = { 170,  90, 140, 120, "METAL",     COL_ACCENT };
@@ -29,6 +30,8 @@ const Button BTN_V_KEEP    = { 320, 260, 140, 56, "KEEP",    COL_OK     };
 
 const Button BTN_MSG_OK    = { 170, 260, 140, 56, "OK",      COL_ACCENT };
 
+const Button BTN_TOUCH_START = { 165, 246, 150, 56, "START", COL_ACCENT };
+
 // Stat box geometry on the scanning screen, shared by the full paint and the
 // live update so they line up exactly.
 static const int16_t STAT_Y = 130;
@@ -41,7 +44,7 @@ static int16_t lastProgressW = 0;
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-static void text(TFT_eSPI& tft, const char* s, int16_t x, int16_t y,
+static void text(Display& tft, const char* s, int16_t x, int16_t y,
                  uint8_t font, uint8_t size, uint16_t fg, uint16_t bg, uint8_t datum) {
     tft.setTextDatum(datum);
     tft.setTextColor(fg, bg);
@@ -54,7 +57,7 @@ bool buttonHit(const Button& b, int16_t tx, int16_t ty) {
     return tx >= b.x && tx < (b.x + b.w) && ty >= b.y && ty < (b.y + b.h);
 }
 
-void drawButton(TFT_eSPI& tft, const Button& b, bool filled) {
+void drawButton(Display& tft, const Button& b, bool filled) {
     // Long labels drop to the smaller font so they still fit the box.
     uint8_t font = (strlen(b.label) > 8) ? 2 : 4;
 
@@ -68,7 +71,7 @@ void drawButton(TFT_eSPI& tft, const Button& b, bool filled) {
     }
 }
 
-static void drawStatusBar(TFT_eSPI& tft, const UiState& s, const char* mode) {
+static void drawStatusBar(Display& tft, const UiState& s, const char* mode) {
     char buf[32];
     tft.fillRect(0, 0, SCREEN_W, BAR_TOP_H, COL_PANEL);
 
@@ -83,7 +86,7 @@ static void drawStatusBar(TFT_eSPI& tft, const UiState& s, const char* mode) {
          s.cardPresent ? COL_OK : COL_MUTED, COL_PANEL, MR_DATUM);
 }
 
-static void drawCheckLine(TFT_eSPI& tft, int16_t y, const char* label, bool ok) {
+static void drawCheckLine(Display& tft, int16_t y, const char* label, bool ok) {
     text(tft, label, 60, y, 4, 1, COL_TEXT, COL_BG, ML_DATUM);
     text(tft, ok ? "OK" : "....", 420, y, 4, 1,
          ok ? COL_OK : COL_MUTED, COL_BG, MR_DATUM);
@@ -92,30 +95,73 @@ static void drawCheckLine(TFT_eSPI& tft, int16_t y, const char* label, bool ok) 
 // ---------------------------------------------------------------------------
 // Screens
 // ---------------------------------------------------------------------------
-void drawBoot(TFT_eSPI& tft, const UiState& s) {
+void drawBoot(Display& tft, const UiState& s) {
     tft.fillScreen(COL_BG);
-    text(tft, "Wi-Sense", SCREEN_W / 2, 45, 4, 1, COL_ACCENT, COL_BG, MC_DATUM);
-    text(tft, "starting up", SCREEN_W / 2, 75, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+    text(tft, "Wi-Sense", SCREEN_W / 2, 38, 4, 1, COL_ACCENT, COL_BG, MC_DATUM);
+    text(tft, "lights should flash red, then green, then blue",
+         SCREEN_W / 2, 66, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
 
-    drawCheckLine(tft, 125, "Receiver",    s.receiverReady);
-    drawCheckLine(tft, 165, "WiFi link",   s.wifiLinked);
-    drawCheckLine(tft, 205, "Transmitter", s.transmitterReady);
-    drawCheckLine(tft, 245, "Card",        s.cardPresent);
+    // The last two are real checks. The first three are still invented, and
+    // become real as the receiver firmware and the transmitter are joined on.
+    drawCheckLine(tft, 100, "Receiver",     s.receiverReady);
+    drawCheckLine(tft, 134, "WiFi link",    s.wifiLinked);
+    drawCheckLine(tft, 168, "Transmitter",  s.transmitterReady);
+    drawCheckLine(tft, 202, "Card",         s.cardPresent);
+    drawCheckLine(tft, 236, "Distance",     s.sensorPresent);
+
+    if (s.cardDetail[0] != '\0') {
+        text(tft, s.cardDetail, SCREEN_W / 2, 265, 2, 1,
+             s.cardWorking ? COL_MUTED : COL_WARN, COL_BG, MC_DATUM);
+    }
+    if (s.sensorDetail[0] != '\0') {
+        text(tft, s.sensorDetail, SCREEN_W / 2, 285, 2, 1,
+             s.sensorWorking ? COL_MUTED : COL_WARN, COL_BG, MC_DATUM);
+    }
+
+    text(tft, BUILD_TAG, SCREEN_W / 2, 308, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
 }
 
-void drawHome(TFT_eSPI& tft, const UiState& s) {
+void drawHome(Display& tft, const UiState& s) {
     tft.fillScreen(COL_BG);
     drawStatusBar(tft, s, "READY");
+
+    drawHomeDistance(tft, s);
 
     drawButton(tft, BTN_HOME_COLLECT, true);
     drawButton(tft, BTN_HOME_IDENTIFY, false);
 
     text(tft, s.modelTrained ? "detector loaded" : "no detector trained yet",
-         SCREEN_W / 2, 228, 2, 1,
+         SCREEN_W / 2, 222, 2, 1,
          s.modelTrained ? COL_OK : COL_WARN, COL_BG, MC_DATUM);
+
+    drawButton(tft, BTN_HOME_SENS, false);
+
+    // Which build is actually on the board. Kept on the home screen so it can
+    // be checked at any time rather than caught during start-up.
+    text(tft, BUILD_TAG, SCREEN_W / 2, 308, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
 }
 
-void drawLabel(TFT_eSPI& tft, const UiState& s) {
+// Refreshed several times a second on the home screen, so you can wave a hand
+// in front of the sensor and watch the number follow it. Repaints only its own
+// strip, never the whole screen.
+void drawHomeDistance(Display& tft, const UiState& s) {
+    char buf[40];
+
+    tft.fillRect(90, 52, 300, 26, COL_BG);
+
+    if (!s.sensorWorking) {
+        snprintf(buf, sizeof(buf), "distance sensor not found");
+        text(tft, buf, SCREEN_W / 2, 64, 2, 1, COL_WARN, COL_BG, MC_DATUM);
+    } else if (s.sensorInRange) {
+        snprintf(buf, sizeof(buf), "distance   %u mm", s.distanceMm);
+        text(tft, buf, SCREEN_W / 2, 64, 2, 1, COL_OK, COL_BG, MC_DATUM);
+    } else {
+        snprintf(buf, sizeof(buf), "distance   nothing in range");
+        text(tft, buf, SCREEN_W / 2, 64, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+    }
+}
+
+void drawLabel(Display& tft, const UiState& s) {
     tft.fillScreen(COL_BG);
     drawStatusBar(tft, s, "COLLECT");
 
@@ -128,7 +174,7 @@ void drawLabel(TFT_eSPI& tft, const UiState& s) {
     drawButton(tft, BTN_LABEL_BACK, false);
 }
 
-void drawSettings(TFT_eSPI& tft, const UiState& s) {
+void drawSettings(Display& tft, const UiState& s) {
     char buf[72];
     tft.fillScreen(COL_BG);
     drawStatusBar(tft, s, "COLLECT");
@@ -152,7 +198,7 @@ void drawSettings(TFT_eSPI& tft, const UiState& s) {
 }
 
 // Painted once, when the run begins.
-void drawScanningFrame(TFT_eSPI& tft, const UiState& s) {
+void drawScanningFrame(Display& tft, const UiState& s) {
     char buf[40];
     tft.fillScreen(COL_BG);
 
@@ -177,7 +223,7 @@ void drawScanningFrame(TFT_eSPI& tft, const UiState& s) {
 }
 
 // Called repeatedly while the run is active. Repaints only small regions.
-void drawScanningLive(TFT_eSPI& tft, const UiState& s) {
+void drawScanningLive(Display& tft, const UiState& s) {
     char buf[16];
 
     // --- progress bar: draw only the newly filled slice ---
@@ -220,7 +266,7 @@ void drawScanningLive(TFT_eSPI& tft, const UiState& s) {
          (s.coverage >= COVERAGE_MIN) ? COL_OK : COL_BAD, COL_PANEL, MC_DATUM);
 }
 
-void drawVerdict(TFT_eSPI& tft, const UiState& s) {
+void drawVerdict(Display& tft, const UiState& s) {
     char buf[72];
     tft.fillScreen(COL_BG);
     drawStatusBar(tft, s, "RESULT");
@@ -245,7 +291,7 @@ void drawVerdict(TFT_eSPI& tft, const UiState& s) {
     drawButton(tft, BTN_V_KEEP,    s.runPassed);
 }
 
-void drawMessage(TFT_eSPI& tft, const UiState& s) {
+void drawMessage(Display& tft, const UiState& s) {
     tft.fillScreen(COL_BG);
     drawStatusBar(tft, s, "NOTICE");
 
@@ -253,4 +299,23 @@ void drawMessage(TFT_eSPI& tft, const UiState& s) {
     text(tft, s.messageBody,  SCREEN_W / 2, 175, 2, 1, COL_TEXT, COL_BG, MC_DATUM);
 
     drawButton(tft, BTN_MSG_OK, false);
+}
+
+// The actual calibration (the moving target markers) is drawn by the graphics
+// library itself, from inside calibrateTouch() in main.cpp — this screen is
+// only the instruction before that starts.
+void drawTouchSetup(Display& tft, const UiState& s) {
+    (void)s;
+    tft.fillScreen(COL_BG);
+    drawStatusBar(tft, s, "TOUCH SETUP");
+
+    text(tft, "Touch calibration", SCREEN_W / 2, 90, 4, 1, COL_TEXT, COL_BG, MC_DATUM);
+    text(tft, "Press START, then touch each",
+         SCREEN_W / 2, 140, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+    text(tft, "marker with the stylus as it appears.",
+         SCREEN_W / 2, 164, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+    text(tft, "Saved on the chip - survives power off.",
+         SCREEN_W / 2, 196, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+
+    drawButton(tft, BTN_TOUCH_START, true);
 }
