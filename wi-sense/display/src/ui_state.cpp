@@ -37,10 +37,16 @@ bool simSelfTest(UiState& s, uint32_t elapsedMs) {
     s.receiverReady    = elapsedMs > 400;
     s.wifiLinked       = elapsedMs > 900;
     s.transmitterReady = elapsedMs > 1500;
-    s.cardPresent      = elapsedMs > 2000;
+
+    // This one is not invented. cardWorking comes from the real card check
+    // that ran before this screen appeared; the delay is only so the four
+    // lines appear in order rather than all at once.
+    s.cardPresent      = (elapsedMs > 2000) && s.cardWorking;
+    s.sensorPresent    = (elapsedMs > 2400) && s.sensorWorking;
 
     s.checksPassed = (uint8_t)s.receiverReady + (uint8_t)s.wifiLinked +
-                     (uint8_t)s.transmitterReady + (uint8_t)s.cardPresent;
+                     (uint8_t)s.transmitterReady + (uint8_t)s.cardPresent +
+                     (uint8_t)s.sensorPresent;
 
     return s.checksPassed != before;
 }

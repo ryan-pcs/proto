@@ -1,5 +1,5 @@
 #pragma once
-#include <TFT_eSPI.h>
+#include "display_driver.h"
 #include "ui_state.h"
 
 struct Button {
@@ -9,25 +9,28 @@ struct Button {
 };
 
 bool buttonHit(const Button& b, int16_t tx, int16_t ty);
-void drawButton(TFT_eSPI& tft, const Button& b, bool filled);
+void drawButton(Display& tft, const Button& b, bool filled);
 
 // Full repaints. Safe between runs, never during an active capture.
-void drawBoot(TFT_eSPI& tft, const UiState& s);
-void drawHome(TFT_eSPI& tft, const UiState& s);
-void drawLabel(TFT_eSPI& tft, const UiState& s);
-void drawSettings(TFT_eSPI& tft, const UiState& s);
-void drawVerdict(TFT_eSPI& tft, const UiState& s);
-void drawMessage(TFT_eSPI& tft, const UiState& s);
+void drawBoot(Display& tft, const UiState& s);
+void drawHome(Display& tft, const UiState& s);
+void drawHomeDistance(Display& tft, const UiState& s);   // small strip only
+void drawLabel(Display& tft, const UiState& s);
+void drawSettings(Display& tft, const UiState& s);
+void drawVerdict(Display& tft, const UiState& s);
+void drawMessage(Display& tft, const UiState& s);
+void drawTouchSetup(Display& tft, const UiState& s);
 
 // Scanning is split deliberately: the frame is painted once when the run
 // starts, and only the small number boxes are repainted while it runs.
 // A full repaint mid-capture takes long enough to cost you readings.
-void drawScanningFrame(TFT_eSPI& tft, const UiState& s);
-void drawScanningLive(TFT_eSPI& tft, const UiState& s);
+void drawScanningFrame(Display& tft, const UiState& s);
+void drawScanningLive(Display& tft, const UiState& s);
 
 // --- button layouts, shared between drawing and touch handling ---
 extern const Button BTN_HOME_COLLECT;
 extern const Button BTN_HOME_IDENTIFY;
+extern const Button BTN_HOME_SENS;
 
 extern const Button BTN_LABEL_EMPTY;
 extern const Button BTN_LABEL_METAL;
@@ -51,3 +54,5 @@ extern const Button BTN_V_AGAIN;
 extern const Button BTN_V_KEEP;
 
 extern const Button BTN_MSG_OK;
+
+extern const Button BTN_TOUCH_START;

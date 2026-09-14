@@ -19,6 +19,25 @@ static const int16_t BAR_BOT_Y = SCREEN_H - BAR_BOT_H;             // 256
 // hit should be smaller than this.
 static const int16_t TOUCH_MIN = 60;
 
+// How hard a press has to be before it counts. The graphics library defaults
+// to 600, which is too firm for some panels — a normal finger press is simply
+// ignored. Lower this if presses are being missed; raise it if the screen
+// reacts to presses that never happened.
+// How hard a press has to be before it counts. This is only the starting
+// value — the sensitivity screen lets you choose one that suits how you
+// actually press, and remembers it. Idle readings on this panel sit between
+// 0 and about 40, so anything above 50 is clear of the noise.
+static const uint16_t TOUCH_THRESHOLD_DEFAULT = 150;
+
+// Set to 1 to turn on touch diagnostics: a "tap anywhere" check screen at
+// start-up, and a press reading printed to the serial monitor whenever the
+// panel is touched. Set back to 1 if touch ever starts misbehaving.
+#define TOUCH_DEBUG 0
+
+// Shown at start-up and on the screen test, so you can tell at a glance which
+// build is actually running on the board. Change it whenever the code changes.
+#define BUILD_TAG "build-24-sensor"
+
 // ---------------------------------------------------------------------------
 // Colours, in the screen's 16-bit format.
 // ---------------------------------------------------------------------------
