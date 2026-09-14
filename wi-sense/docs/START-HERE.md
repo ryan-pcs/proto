@@ -20,8 +20,10 @@ or slowing the queue.
 
 ## Where it stands
 
-**Phase: hardware bring-up.** Proving each component works with the parts
-actually in hand. Data collection has deliberately not started.
+**Phase: hardware bring-up, mostly finished — now blocked on hardware.**
+Every part of the receiver side has now been proven on the real board. What
+stops progress is no longer software: there is only one working ESP32 left, and
+a CSI link needs two. Data collection has deliberately not started.
 
 ### Working
 
@@ -32,38 +34,56 @@ actually in hand. Data collection has deliberately not started.
   and a guarded baseline trainer.
 - A touchscreen interface — six screens — drawing correctly on the ESP32-S3.
 - The transmitter firmware also builds for the S3 now.
+- **The receiver firmware builds and runs on the ESP32-S3**, and CSI starts up
+  there cleanly — see the next section.
+- **The memory card, the distance sensor and touch** — all three confirmed on
+  the real board, not just written.
+
+### Proven on the board (2026-09-14)
+
+One upload answered several questions at once. From the serial monitor:
+
+```
+PROMISCUOUS,result=ESP_OK
+CSI_CONFIG,result=ESP_OK
+CSI_CALLBACK,result=ESP_OK
+CSI_ENABLE,result=ESP_OK
+CSI ready
+DIAG  build-24-sensor  ...  touch calibrated   card mounted   sensor ready
+```
+
+- **CSI starts up on the ESP32-S3.** All four calls return `ESP_OK` and the
+  callback registers. The S3 accepts the same CSI settings the classic chip
+  used. This is the API half of the old open question, and it is now closed.
+- **The memory card works.** `card mounted` in that line is only printed when
+  `storageBegin()` *and* `storageSelfTest()` both passed — so the card mounted,
+  wrote a file, read it back correctly, and created the capture folders. The
+  onboard reader (CLK 39, CMD 38, D0 40) is confirmed in use, not just wired.
+- **The distance sensor answers.** `sensorBegin()` succeeded over I2C.
+- **Touch is calibrated.** A saved calibration loads at start-up, which can only
+  exist if the targets were tapped on the real panel.
+
+These three had been "code written, never run" since they were added. They are
+not that any more.
 
 ### Not working or not built
 
 - No detector has been trained. **No controlled metal or non-metal data has
   been collected at all** — only connection tests.
-- **Distance sensor: code written, not yet proven.** `sensorBegin()`/
-  `sensorRead()` in `src/sensor.cpp` were complete but never called from
-  `main.cpp` — the likely reason it "did nothing" when first wired up
-  physically, since the firmware never once asked it anything, regardless of
-  wiring. Now called at start-up and, once running, a few times a second
-  while the home screen is showing, feeding the live distance readout that
-  screen already had built in. The three indicator lights needed no code
-  changes — `lampTest()`/`setLights()` were already wired in from the start;
-  they only need the physical reconnection.
-- **Memory card: code written, not yet proven.** The S3 bench board turns out
-  to have its own onboard card reader (separate from the back-panel slot on
-  the display, and not needing to share the screen's wires) — pins CLK 39,
-  CMD 38, D0 40, confirmed against the board rather than guessed.
-  `src/storage.cpp` now mounts it, self-tests it, creates the capture
-  folders, and appends events to `/log.txt` on the card. Wired into start-up,
-  but never built, flashed, or run against a real card. The earlier
-  back-panel-slot plan (`docs/sd-card-plan.md`) is parked, not gone — it's
-  still the option if the classic ESP32 ends up as the receiver, since that
-  board has no onboard reader.
-- **Touch: code written, not yet proven.** `display_driver.h` now configures
-  the touch chip and `main.cpp` reads real presses against the buttons
-  already defined in `screens.cpp`, replacing the old timed auto-advance
-  (which still runs as a fallback until a calibration has been saved). A new
-  home-screen button, TOUCH SETUP, runs calibration and saves it so it
-  survives a power cycle. None of this has been built, flashed, or touched
-  on a real board yet — see Next steps.
-- The screen program and the receiver firmware are still two separate programs.
+- **There is no transmitter.** Both classic ESP32 boards are dead. The single
+  working S3 is the receiver, and one radio cannot measure itself, so no
+  reading of any kind can be taken until a second board exists. This is the
+  one thing blocking everything else.
+- The three indicator lights still need reconnecting physically. No code
+  change is needed — `lampTest()`/`setLights()` have driven them since before
+  any of this.
+- **The readings have never been seen on the S3.** CSI starts, but with no
+  transmitter nothing has ever come through the callback. Whether a row comes
+  out with the same number of values as on the classic chip is still unknown,
+  and it is the last question standing between here and collecting data.
+- The screen program and the receiver firmware are **now one program** for the
+  capture side — see Code layout — but the screen still runs on invented
+  numbers. Joining the two properly is staged work that has only just begun.
 
 ---
 
@@ -71,15 +91,20 @@ actually in hand. Data collection has deliberately not started.
 
 | Part | State |
 |---|---|
-| ESP32-S3 N16R8 | Working. Carries the display. On a YwRobot expansion board with its own DC power jack. |
-| Classic ESP32-WROOM | **Destroyed** — reverse polarity. |
+| ESP32-S3 N16R8 | Working, and now the receiver. Carries the display. On a YwRobot expansion board with its own DC power jack. |
+| Classic ESP32-WROOM (receiver) | **Destroyed** — reverse polarity. |
+| Classic ESP32-WROOM (transmitter) | **Destroyed** — burnt out later. Nothing is left to transmit with. |
 | 4.0" ST7796S display, 480×320, resistive touch | Working on the S3. A second identical unit is also on hand. |
-| Laser distance sensor (I2C, address 0x26) | Worked on the old board. Wired to pins 17/18 on the S3, tested standalone with a component tester. Firmware now calls it at start-up (previously never did) — not yet confirmed with the firmware actually reading it. |
-| Onboard card reader (on the S3 bench board itself) | Wiring confirmed (CLK 39, CMD 38, D0 40). Code written, not yet flashed or tested. |
+| Laser distance sensor (I2C, address 0x26) | **Working.** Answers the firmware at start-up on pins 17/18 of the S3. |
+| Onboard card reader (on the S3 bench board itself) | **Working.** Mounts, writes, reads back, and creates the capture folders. Pins CLK 39, CMD 38, D0 40. |
 | microSD slot on the back of the display board | Wires soldered. Never successfully read. Plan parked in favour of the onboard reader above — see Open questions. |
 | Three indicator lights | Wired previously, not reconnected. |
 
-The student has the two boards originally intended as transmitter and receiver.
+**Only one working ESP32 remains.** A second board — any ESP32 — is the single
+thing needed before a reading of any kind can be taken. The transmitter builds
+for both the classic chip and the S3, so either will do; whichever is chosen
+then has to stay fixed for the whole dataset, because what the receiver measures
+depends on the radio at both ends.
 
 ---
 
@@ -99,6 +124,14 @@ The student has the two boards originally intended as transmitter and receiver.
 - **Build the rig completely before collecting data.** Every physical change
   makes earlier readings unusable.
 - **LovyanGFX, not TFT_eSPI** — see below.
+- **The S3 is the receiver**, settled 2026-09-14. It is the only working board,
+  it carries the screen, and the card reader the storage code uses exists only
+  on it.
+- **The receiver commands the transmitter over WiFi**, not over a second serial
+  cable, because the finished machine has no laptop attached.
+- **The card holds the same CSV text the laptop has always written.** Space is
+  not the constraint — a 20-second run at 50Hz is under a megabyte — and
+  matching the format exactly means the Python tools need no changes.
 
 ---
 
@@ -132,6 +165,20 @@ in one day — the tool reported success and the file was unchanged, so builds
 kept flashing old code. Always read a file back after writing it. The build
 label exists for this reason.
 
+**Worse than a failed write is a mangled one.** A later session wrote C code
+through a shell command and the escape sequences were eaten on the way: `'\r'`,
+`'\n'` and `'\0'` became real control characters, putting an actual zero byte
+in the middle of the source. The write "succeeded" and the file looked almost
+right. Reading a file back is not enough on its own — check it for stray
+control characters too, and prefer writing through a script file over pasting
+code into a shell command.
+
+**PlatformIO does not always rebuild when a build flag changes.** Setting a
+`-D` through the environment produced a firmware byte-for-byte identical to the
+one before it — the flag never reached the compiler. If a flag is meant to
+change something, check the flash size changed too. Turning the CSI capture on
+moves it from about 473KB to about 854KB, because the WiFi stack comes with it.
+
 **Build with PlatformIO (`pio`), never the ESP-IDF tools (`idf.py`).** Mixing
 them causes confusing failures.
 
@@ -145,57 +192,55 @@ PlatformIO picks one on its own and can easily choose wrong.
 
 ## Open questions
 
-**Which chip is the receiver now?** The plan was WROOM as receiver, S3 as
-transmitter. The WROOM is dead and the S3 currently carries the display. Either
-the S3 becomes the receiver, or a replacement WROOM does and the display moves
-back. This has not been settled.
+**Where does a second board come from?** Everything else waits on this. Any
+ESP32 will do as the transmitter; it uses no pins beyond power.
 
-**Does the receiver firmware work on the S3?** It has never been built for that
-chip, and nobody has confirmed the CSI readings come out in the same shape. The
-student's entire validated pipeline — coverage rules, row checks, the audit
-history — was built and tested on the classic chip. This is the largest
-remaining unknown.
+**Do the readings come out of the S3 in the same shape?** The firmware builds
+and CSI starts, but no reading has ever arrived, because there has been nothing
+to receive from. On the classic chip a row carries 128 or 256 values in 25
+columns. If the S3 differs, the Python tools will still read it — they never
+assume a length — but the two chips' data could not be mixed, and the choice
+would need recording before any collecting starts.
 
-**The memory card has never actually been read from yet.** Two attempts at
-the back-panel slot failed. `src/storage.cpp` has now been rewritten from
-scratch around the S3 board's onboard reader instead (a different, simpler
-connection — no wire-sharing with the screen), but this is still unverified
-against real hardware. If the receiver ends up being the classic ESP32
-instead of the S3 (see the open question above), the onboard reader isn't
-available there and the back-panel slot becomes the only option again.
+**Are the S3's readings good enough?** Separate from their shape. Only a real
+run against a real transmitter can say.
 
 **Readings are not interchangeable between chips.** What the receiver measures
 depends on the hardware at both ends. Whatever combination is chosen must stay
 fixed for the whole dataset.
 
+**One column name appears twice.** The CSV header has `sig_mode` at both column
+6 and column 22 — the firmware and `collect_burst.py` agree on this, so it is
+consistent, but older capture files in `data/` say `rx_format` at column 22
+instead. Nothing reads that column today, so nothing is broken. It matters when
+the board starts writing files itself: a duplicate name means Python quietly
+keeps only the second one. Decide before the card starts recording.
+
 ---
 
 ## Next steps, in order
 
-1. **Test touch, the memory card, and the distance sensor together** — the
-   code for all three is now written (current build `build-24-sensor`,
-   2026-09-14) but none of it has been through a real build or flash yet.
-   One upload and one look at the serial monitor checks all three at once:
-   `pio run -e esp32s3 --target upload` then `pio device monitor`. Confirm
-   the build label reads `build-24-sensor` first — if it doesn't, the upload
-   didn't take and nothing below means anything yet. Then look for:
-   - Touch: press TOUCH SETUP on the home screen to calibrate (needed once;
-     until then screens fall back to the old timer). Wiring still needed:
-     one wire, `T_CS` to IO15 on the S3.
-   - Card: `[card] mounted, self-test passed` in the monitor, the boot
-     screen's "Card" line going green, and afterward `/log.txt` plus the
-     empty `/data/...` folders on the card itself.
-   - Sensor: `[sensor] answered, ready` in the monitor, and a live
-     millimetre reading on the home screen that changes when you wave a hand
-     over it. If this instead reports "no answer on the two wires", that
-     points at wiring/power rather than firmware.
-   The indicator lights need no firmware change, only reconnecting physically
-   — the code has driven them since before this session.
-2. Settle which chip is the receiver, and build the receiver firmware for it.
-3. Join the screen program and the receiver firmware into one.
-4. Build the physical rig completely, then collect the dataset.
+1. **Get a second ESP32.** Nothing below can start without one. The transmitter
+   builds for either chip (`pio run -e esp32dev` or `-e esp32s3`) and needs no
+   wiring beyond power.
+2. **Answer the shape question.** With the transmitter running, flash the
+   receiver with `CSI_STAGE_A=1` in `display/platformio.ini` and take one
+   capture with the laptop's `collect_burst.py`, exactly as before — the merged
+   firmware answers the same serial commands. Then check what came back:
 
----
+   ```
+   python -c "import csv,json; r=list(csv.DictReader(open('run.csv'))); print('cols',len(r[0]),'lens',sorted({len(json.loads(x['data'])) for x in r}))"
+   ```
+
+   `cols 25` and `lens [128, 256]` means the S3 matches the classic chip and
+   the rest of the plan holds. Anything else is the answer to the open question
+   above, and needs writing down here before going further.
+3. Write captures to the card instead of the cable, with the metadata
+   `dataset_report.py` demands.
+4. Have the receiver command the transmitter over WiFi, so no laptop is needed.
+5. Let the screen drive real runs instead of invented numbers.
+6. Reconnect the three indicator lights — no code change needed.
+7. Build the physical rig completely, then collect the dataset.
 
 ## Document map
 
@@ -220,14 +265,36 @@ board. `display/src/board_pins.h` is now the authority for pins on both chips.
 
 | Folder | What it is |
 |---|---|
-| `receiver/` | The student's CSI capture firmware. Classic ESP32 only. Hardened, audited — treat with care. |
+| `receiver/` | The student's CSI capture firmware. **Frozen as the audited reference copy** — the living copy now lives in `display/src/csi_capture.c`. Keep for comparison; do not develop here. |
 | `transmitter/` | The student's transmitter. Builds for both chips. |
 | `tool/` | Python: collection, filtering, features, dataset checks, training. |
-| `display/` | The touchscreen program. Current build `build-24-sensor`. |
+| `display/` | The touchscreen program **and, since 2026-09-14, the CSI capture**. Current build `build-24-sensor`. See below. |
 | `screentest/` | A throwaway proof that LovyanGFX drives the panel. Keep as a reference; delete when no longer useful. |
 | `docs/` | This file and the others above. |
 
 Two build profiles everywhere: `pio run -e esp32s3` and `pio run -e esp32dev`.
+Both must stay green.
+
+Inside `display/src/`, the capture side is:
+
+| File | What it is |
+|---|---|
+| `csi_capture.c/.h` | The capture, moved in from `receiver/`. Its own header lists every way it differs from the frozen original — read that before changing it. |
+| `csi_sink.cpp/.h` | Where a finished reading goes: the serial cable today, the card later. Swapping one for the other is one function call. |
+
+`CSI_STAGE_A` in `display/platformio.ini` switches the capture on. **It is
+currently set to 1**, and the board is flashed that way, ready for the moment a
+transmitter exists — the only reason nothing comes out is that there is nothing
+to receive from. Set it to 0 and the program behaves exactly as it did before
+any of this; the screens are unaffected either way. With it on, the board also
+answers the laptop's `collect_burst.py` as the old receiver did, which is how
+the shape question gets answered.
+
+One fix was needed to make the capture build for the S3: the gain-control block
+must stay switched off there, because the four `esp_csi_gain_ctrl_*` functions
+it calls do not exist in this SDK. With it off the readings are passed through
+unscaled — exactly what the classic ESP32 has always done — so nothing about
+the output changes.
 
 ---
 
@@ -240,9 +307,19 @@ Check that before debugging anything else.
 
 Pins live in `display/src/board_pins.h`. One place, both chips.
 
-The card (once proven working) only holds a self-test file, the empty capture
-folders, and a plain-text event log so far — no capture behind the screen's
-numbers is real, and nothing is real scan data yet. The program says so
-rather than implying otherwise, and that honesty is deliberate — it matches
-the student's own rule that nothing may claim metal detection until a model
-has been trained and tested.
+The capture prints through Arduino's `Serial`, not `ets_printf`. On the S3 those
+are not the same place — `ets_printf` always goes to UART0 while `Serial`
+follows the USB build flags — so everything the program says, readings included,
+comes out of one socket. `sdkconfig.defaults` in `receiver/` does nothing under
+PlatformIO: it asks for 128 receive buffers and a 30-second watchdog, and the
+prebuilt Arduino libraries give 32 and 5 regardless. That has always been true,
+on both chips.
+
+The card works, but so far holds only a self-test file, the empty capture
+folders, and a plain-text event log — no capture behind the screen's numbers is
+real, and nothing is real scan data yet. The run lines it logs are still marked
+`(sim)` for exactly that reason, and that marking comes off only when the
+numbers behind them are real. The program says what it actually knows rather
+than implying more, and that honesty is deliberate — it matches the student's
+own rule that nothing may claim metal detection until a model has been trained
+and tested.

@@ -26,6 +26,30 @@
 #include "screens.h"
 #include "storage.h"
 #include "sensor.h"
+#include "csi_capture.h"
+#include "csi_sink.h"
+
+// ---------------------------------------------------------------------------
+// STAGE A - proving CSI capture works on this chip.
+//
+// Off by default, so this program still builds and behaves exactly as it did
+// before the capture code moved in. Switch it on in platformio.ini and the
+// board also becomes the old receiver: it joins the transmitter, answers the
+// same serial commands collect_burst.py has always sent, and prints the same
+// CSV rows. The screens are untouched and still run on invented numbers.
+//
+// It exists to answer one question and then go away - whether the readings
+// come out of the S3 in the same shape they came out of the classic ESP32.
+// Nothing downstream can be trusted until that is known. Stage D replaces all
+// of this with the screen driving real runs.
+// ---------------------------------------------------------------------------
+#ifndef CSI_STAGE_A
+#define CSI_STAGE_A 0
+#endif
+
+static const char CHAR_CR  = 13;
+static const char CHAR_LF  = 10;
+static const char CHAR_NUL = 0;
 
 static Display    tft;
 static UiState    state;
@@ -90,6 +114,48 @@ static void logAction(const char* what) {
 
 // Printed at start-up and then every ten seconds, because the start-up text
 // usually scrolls past before a monitor can attach to this board.
+#if CSI_STAGE_A
+// True between CSI_CAPTURE_ON and CSI_CAPTURE_OFF. While it is set, nothing
+// else may print: a diagnostics line landing in the middle of a reading would
+// corrupt that row for whatever is parsing the other end.
+static bool captureRunning = false;
+
+// The same three commands the receiver firmware has always answered, so the
+// laptop tools drive this board without knowing anything changed.
+static char commandBuffer[32];
+static size_t commandLength = 0;
+
+static void processCaptureCommands() {
+    while (Serial.available() > 0) {
+        char character = (char)Serial.read();
+        if (character == CHAR_CR) {
+            continue;
+        }
+        if (character == CHAR_LF) {
+            commandBuffer[commandLength] = CHAR_NUL;
+            if (strcmp(commandBuffer, "CSI_CAPTURE_ON") == 0) {
+                captureRunning = true;
+                csiCaptureStart();
+                Serial.println("CSI_CAPTURE_READY");
+            } else if (strcmp(commandBuffer, "CSI_CAPTURE_OFF") == 0) {
+                bool stopped = csiCaptureStop();
+                captureRunning = false;
+                Serial.print(stopped ? "CSI_CAPTURE_STOPPED,drops=" : "CSI_CAPTURE_STOP_TIMEOUT,drops=");
+                Serial.println(csiCaptureDrops());
+            } else if (strcmp(commandBuffer, "CSI_STATUS") == 0) {
+                Serial.print("RECEIVER_STATUS,ready=");
+                Serial.print(csiCaptureIsReady() ? 1 : 0);
+                Serial.print(",wifi=");
+                Serial.println(csiCaptureIsConnected() ? 1 : 0);
+            }
+            commandLength = 0;
+        } else if (commandLength < sizeof(commandBuffer) - 1) {
+            commandBuffer[commandLength++] = character;
+        }
+    }
+}
+#endif
+
 static void printDiagnostics() {
     Serial.print("DIAG  ");
     Serial.print(BUILD_TAG);
@@ -234,6 +300,17 @@ void setup() {
         Serial.println(sensorInfo.error);
     }
 
+#if CSI_STAGE_A
+    Serial.println("[csi] joining the transmitter - this can take ten seconds...");
+    csiSinkSet(csiSinkSerial);
+    csiCaptureInit();
+    Serial.print("[csi] ");
+    Serial.print(csiCaptureIsConnected() ? "joined" : "NOT joined");
+    Serial.print(", capture ");
+    Serial.println(csiCaptureIsReady() ? "ready" : "NOT ready");
+    storageLog(csiCaptureIsReady() ? "boot - csi ready" : "boot - csi NOT ready");
+#endif
+
     goTo(SCR_BOOT);
     Serial.println(touchCalibrated
         ? "[4] ready - touch is calibrated, screens wait for a press"
@@ -250,8 +327,15 @@ void loop() {
     const uint32_t now = millis();
     const uint32_t sinceEnter = now - screenEnteredAt;
 
+#if CSI_STAGE_A
+    processCaptureCommands();
+#endif
+
     if (now - lastDiagAt > 10000) {
         lastDiagAt = now;
+#if CSI_STAGE_A
+        if (!captureRunning)
+#endif
         printDiagnostics();
     }
 
