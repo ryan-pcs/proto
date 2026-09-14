@@ -36,7 +36,7 @@ static const uint16_t TOUCH_THRESHOLD_DEFAULT = 150;
 
 // Shown at start-up and on the screen test, so you can tell at a glance which
 // build is actually running on the board. Change it whenever the code changes.
-#define BUILD_TAG "build-24-sensor"
+#define BUILD_TAG "build-26-levels"
 
 // ---------------------------------------------------------------------------
 // Colours, in the screen's 16-bit format.
@@ -49,6 +49,47 @@ static const uint16_t TOUCH_THRESHOLD_DEFAULT = 150;
 #define COL_OK      0x0660   // green
 #define COL_WARN    0xFD20   // amber
 #define COL_BAD     0xF800   // red
+#define COL_BAD_DIM 0x6000   // the dark half of the flashing red result
 
 // The coverage threshold that decides whether a run counts, from STORAGE.md.
 static const float COVERAGE_MIN = 0.75f;
+
+// ---------------------------------------------------------------------------
+// Everyday scanning at the gate.
+//
+// Starting values only. They are kept in the board's flash once changed on the
+// SETUP screen, so these are what a brand new board begins with.
+//
+// The re-arm gap is the one that is not a matter of taste. Re-arming happens
+// further out than triggering on purpose: with a single threshold, a bag left
+// sitting near the edge makes the reading cross back and forth and the machine
+// scans the same bag over and over. The gap is what stops that.
+// ---------------------------------------------------------------------------
+static const uint16_t GATE_TRIGGER_MM_DEFAULT = 300;
+static const uint16_t GATE_REARM_GAP_MM       = 150;
+static const uint16_t GATE_DWELL_MS_DEFAULT   = 600;
+static const uint16_t GATE_SCAN_MS_DEFAULT    = 2500;
+
+// The two thresholds that turn a detector's confidence (0-100) into one of the
+// three levels. Below the first is green, above the second is red, and between
+// them is the orange band where the machine says it is not sure.
+//
+// These numbers are placeholders. They cannot be chosen properly until a
+// detector exists and has been tested against bags whose contents are known -
+// where they sit is the trade between waving through a bag with metal in it
+// and hand-searching bags that had none. That is a decision about how the
+// school wants to run the gate, not a number to guess at a desk.
+static const uint8_t GATE_CONF_UNSURE = 40;   // green below this
+static const uint8_t GATE_CONF_METAL  = 75;   // red at or above this
+
+// How fast the red result flashes. Kept at roughly 1.7 flashes a second: fast
+// enough to read as an alarm, and deliberately below the three-a-second mark
+// that is the usual guidance for anything that might be looked at by someone
+// with photosensitive epilepsy.
+static const uint16_t GATE_FLASH_MS = 300;
+
+// What the SETUP screen will let the three settings above be changed to, and
+// by how much one press moves them.
+static const uint16_t GATE_TRIGGER_MM_MIN  = 100,  GATE_TRIGGER_MM_MAX  = 700,  GATE_TRIGGER_MM_STEP = 25;
+static const uint16_t GATE_DWELL_MS_MIN    = 0,    GATE_DWELL_MS_MAX    = 2000, GATE_DWELL_MS_STEP   = 100;
+static const uint16_t GATE_SCAN_MS_MIN     = 1000, GATE_SCAN_MS_MAX     = 6000, GATE_SCAN_MS_STEP    = 500;

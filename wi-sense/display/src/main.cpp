@@ -103,6 +103,95 @@ static uint32_t screenEnteredAt  = 0;
 static uint32_t lastTickAt       = 0;
 static uint32_t lastDiagAt       = 0;
 static uint32_t lastSensorReadAt = 0;
+static uint32_t lastGateDrawAt   = 0;
+static bool     flashBright      = true;
+
+// ---------------------------------------------------------------------------
+// Gate settings.
+//
+// Kept in the board's own flash, the same way the touch calibration is, under
+// the name "gate". The right values depend on where the sensor ends up sitting
+// relative to the tray, so they are found by trying rather than by guessing -
+// which is why they are changeable on the SETUP screen instead of compiled in.
+// ---------------------------------------------------------------------------
+static Preferences gatePrefs;
+
+static void loadGateSettings() {
+    // Opened read-write rather than read-only, purely so that the very first
+    // boot of a board creates the store instead of printing an nvs_open
+    // NOT_FOUND error that looks like a fault and is not one. Nothing is
+    // written here; the defaults below are what a new board starts with.
+    gatePrefs.begin("gate", false);
+    state.triggerMm = gatePrefs.getUShort("trig",  GATE_TRIGGER_MM_DEFAULT);
+    state.dwellMs   = gatePrefs.getUShort("dwell", GATE_DWELL_MS_DEFAULT);
+    state.scanMs    = gatePrefs.getUShort("scan",  GATE_SCAN_MS_DEFAULT);
+    gatePrefs.end();
+
+    state.rearmMm = state.triggerMm + GATE_REARM_GAP_MM;
+
+    Serial.print("[gate] trigger ");
+    Serial.print(state.triggerMm);
+    Serial.print("mm, re-arm ");
+    Serial.print(state.rearmMm);
+    Serial.print("mm, hold ");
+    Serial.print(state.dwellMs);
+    Serial.print("ms, scan ");
+    Serial.print(state.scanMs);
+    Serial.println("ms");
+}
+
+static void saveGateSettings() {
+    gatePrefs.begin("gate", false);
+    gatePrefs.putUShort("trig",  state.triggerMm);
+    gatePrefs.putUShort("dwell", state.dwellMs);
+    gatePrefs.putUShort("scan",  state.scanMs);
+    gatePrefs.end();
+
+    state.rearmMm = state.triggerMm + GATE_REARM_GAP_MM;
+    Serial.println("[gate] settings saved");
+    storageLog("gate settings changed");
+}
+
+static uint16_t stepValue(uint16_t value, int32_t by, uint16_t lo, uint16_t hi) {
+    int32_t next = (int32_t)value + by;
+    if (next < (int32_t)lo) next = lo;
+    if (next > (int32_t)hi) next = hi;
+    return (uint16_t)next;
+}
+
+// ---------------------------------------------------------------------------
+// The distance sensor, as the gate screens use it.
+// ---------------------------------------------------------------------------
+
+// Takes a reading no more often than intervalMs. Returns true when a new one
+// was actually taken, so a caller knows whether anything needs redrawing.
+// sensorRead() blocks for about 4ms, which is why this is paced rather than
+// called every time round the loop.
+static bool pollSensor(uint32_t now, uint32_t intervalMs) {
+    if (!state.sensorWorking) return false;
+    if (now - lastSensorReadAt < intervalMs) return false;
+
+    lastSensorReadAt = now;
+    sensorRead(sensorInfo);
+    state.sensorInRange = sensorInfo.inRange;
+    state.distanceMm    = sensorInfo.distanceMm;
+    return true;
+}
+
+// Something is close enough to count as a bag.
+static bool bagPresent() {
+    return state.sensorWorking && state.sensorInRange &&
+           state.distanceMm < state.triggerMm;
+}
+
+// The tray is clear enough to arm again. Note this uses rearmMm, which sits
+// further out than triggerMm on purpose: with one threshold for both, a bag
+// left near the edge makes the reading cross back and forth and the same bag
+// gets scanned over and over.
+static bool trayClear() {
+    if (!state.sensorWorking) return false;
+    return !state.sensorInRange || state.distanceMm >= state.rearmMm;
+}
 
 // How long each screen holds before moving on, while there is no touch panel.
 static const uint32_t AUTO_ADVANCE_MS = 4000;
@@ -311,6 +400,8 @@ void setup() {
     storageLog(csiCaptureIsReady() ? "boot - csi ready" : "boot - csi NOT ready");
 #endif
 
+    loadGateSettings();
+
     goTo(SCR_BOOT);
     Serial.println(touchCalibrated
         ? "[4] ready - touch is calibrated, screens wait for a press"
@@ -359,42 +450,185 @@ void loop() {
         lampTest(sinceEnter);
         if (simSelfTest(state, sinceEnter)) needsRepaint = true;
         if (needsRepaint) { drawBoot(tft, state); needsRepaint = false; }
-        if (sinceEnter > 3000) { logAction("home"); goTo(SCR_HOME); }
+        if (sinceEnter > 3000) {
+            // A board that has never been calibrated lands on SETUP instead,
+            // because TOUCH SETUP lives there now and a screen that cannot be
+            // pressed accurately has no other way of reaching it.
+            if (touchCalibrated) { logAction("ready"); goTo(SCR_READY); }
+            else                 { logAction("setup - not calibrated"); goTo(SCR_ADMIN); }
+        }
         break;
     }
 
-    case SCR_HOME: {
+    // -----------------------------------------------------------------------
+    // Everyday use at the gate.
+    //
+    // Nobody operates these. The distance sensor decides what happens and the
+    // screen only says what is going on. The collection screens below are
+    // still all there, behind the small COLLECT button.
+    // -----------------------------------------------------------------------
+    case SCR_READY: {
         setLights(true);
-        if (needsRepaint) { drawHome(tft, state); needsRepaint = false; }
+        if (needsRepaint) { drawReady(tft, state); needsRepaint = false; }
 
-        // A few times a second, so waving a hand in front of it is visible
-        // without repainting the whole screen. sensorRead() itself blocks for
-        // about 4ms, which is fine at this pace.
-        if (state.sensorWorking && now - lastSensorReadAt >= 150) {
-            lastSensorReadAt = now;
-            sensorRead(sensorInfo);
-            state.sensorInRange = sensorInfo.inRange;
-            state.distanceMm    = sensorInfo.distanceMm;
-            drawHomeDistance(tft, state);
+        if (pollSensor(now, 100)) {
+            drawReadyDistance(tft, state);
+            if (bagPresent()) {
+                logAction("bag detected");
+                goTo(SCR_ARMING);
+                break;
+            }
         }
 
-        if (touchPressed && buttonHit(BTN_HOME_COLLECT, tx, ty)) {
+        if (touchPressed && buttonHit(BTN_READY_COLLECT, tx, ty)) {
             logAction("COLLECT (touch)");
             goTo(SCR_LABEL);
-        } else if (touchPressed && buttonHit(BTN_HOME_IDENTIFY, tx, ty)) {
-            logAction("IDENTIFY (touch)");
-            snprintf(state.messageTitle, sizeof(state.messageTitle), "MODEL NOT TRAINED");
-            snprintf(state.messageBody,  sizeof(state.messageBody),
-                     "Collect data and train a detector first.");
-            goTo(SCR_MESSAGE);
-        } else if (touchPressed && buttonHit(BTN_HOME_SENS, tx, ty)) {
-            logAction("TOUCH SETUP (touch)");
-            goTo(SCR_TOUCH_SETUP);
+        } else if (touchPressed && buttonHit(BTN_READY_SETUP, tx, ty)) {
+            logAction("SETUP (touch)");
+            goTo(SCR_ADMIN);
+        }
+        break;
+    }
+
+    case SCR_ARMING: {
+        setLights(false);
+        if (needsRepaint) {
+            drawArmingFrame(tft, state);
+            state.phaseMs = 0;
+            drawArmingLive(tft, state);
+            lastGateDrawAt = now;
+            needsRepaint = false;
+        }
+
+        pollSensor(now, 60);
+
+        // Gone again before the hold time was up. This is the whole point of
+        // the hold: a hand reaching across the tray must not start a scan.
+        if (!bagPresent()) {
+            logAction("bag removed before scan started");
+            goTo(SCR_READY);
+            break;
+        }
+
+        state.phaseMs = sinceEnter;
+        if (now - lastGateDrawAt >= 80) {
+            lastGateDrawAt = now;
+            drawArmingLive(tft, state);
+        }
+
+        if (sinceEnter >= state.dwellMs) {
+            gateDecide(state);
+            logAction("scan starting");
+            goTo(SCR_GATE_SCAN);
+        }
+        break;
+    }
+
+    case SCR_GATE_SCAN: {
+        if (needsRepaint) {
+            drawGateScanFrame(tft, state);
+            state.phaseMs = 0;
+            drawGateScanLive(tft, state);
+            lastGateDrawAt = now;
+            needsRepaint = false;
+        }
+
+        state.phaseMs = sinceEnter;
+        if (now - lastGateDrawAt >= 100) {
+            lastGateDrawAt = now;
+            drawGateScanLive(tft, state);
+        }
+
+        // No cancel path, matching the collection screen and the capture
+        // firmware: a started scan always ends the same way.
+        if (sinceEnter >= state.scanMs) {
+            const char* word = verdictWord(state.verdict);
+            char line[64];
+            snprintf(line, sizeof(line), "(sim) gate scan - stand-in result %s", word);
+            storageLog(line);
+            goTo(SCR_GATE_RESULT);
+        }
+        break;
+    }
+
+    case SCR_GATE_RESULT: {
+        if (needsRepaint) {
+            drawGateResult(tft, state);
+            flashBright   = true;
+            lastGateDrawAt = now;
+            needsRepaint  = false;
+        }
+
+        // Only the red result moves. Green and orange are deliberately steady:
+        // a bag that is fine should not make the machine look agitated.
+        if (state.verdict == VERDICT_METAL && now - lastGateDrawAt >= GATE_FLASH_MS) {
+            lastGateDrawAt = now;
+            flashBright = !flashBright;
+            drawGateResultFlash(tft, state, flashBright);
+        }
+
+        if (pollSensor(now, 120)) {
+            drawGateResultPrompt(tft, state);
+
+            // Held for a moment even if the bag is snatched away, so a result
+            // cannot flash past unseen - then held until the tray is properly
+            // clear, so the same bag cannot be scanned twice.
+            if (sinceEnter > 800 && trayClear()) {
+                logAction("tray clear - ready again");
+                goTo(SCR_READY);
+            }
+        }
+        break;
+    }
+
+    case SCR_ADMIN: {
+        setLights(false);
+        if (needsRepaint) { drawAdmin(tft, state); needsRepaint = false; }
+
+        bool changed = false;
+        if (touchPressed) {
+            if (buttonHit(BTN_ADM_TRIG_DN, tx, ty)) {
+                state.triggerMm = stepValue(state.triggerMm, -(int32_t)GATE_TRIGGER_MM_STEP,
+                                            GATE_TRIGGER_MM_MIN, GATE_TRIGGER_MM_MAX);
+                changed = true;
+            } else if (buttonHit(BTN_ADM_TRIG_UP, tx, ty)) {
+                state.triggerMm = stepValue(state.triggerMm, GATE_TRIGGER_MM_STEP,
+                                            GATE_TRIGGER_MM_MIN, GATE_TRIGGER_MM_MAX);
+                changed = true;
+            } else if (buttonHit(BTN_ADM_DWELL_DN, tx, ty)) {
+                state.dwellMs = stepValue(state.dwellMs, -(int32_t)GATE_DWELL_MS_STEP,
+                                          GATE_DWELL_MS_MIN, GATE_DWELL_MS_MAX);
+                changed = true;
+            } else if (buttonHit(BTN_ADM_DWELL_UP, tx, ty)) {
+                state.dwellMs = stepValue(state.dwellMs, GATE_DWELL_MS_STEP,
+                                          GATE_DWELL_MS_MIN, GATE_DWELL_MS_MAX);
+                changed = true;
+            } else if (buttonHit(BTN_ADM_SCAN_DN, tx, ty)) {
+                state.scanMs = stepValue(state.scanMs, -(int32_t)GATE_SCAN_MS_STEP,
+                                         GATE_SCAN_MS_MIN, GATE_SCAN_MS_MAX);
+                changed = true;
+            } else if (buttonHit(BTN_ADM_SCAN_UP, tx, ty)) {
+                state.scanMs = stepValue(state.scanMs, GATE_SCAN_MS_STEP,
+                                         GATE_SCAN_MS_MIN, GATE_SCAN_MS_MAX);
+                changed = true;
+            } else if (buttonHit(BTN_ADM_TOUCH, tx, ty)) {
+                logAction("TOUCH SETUP (touch)");
+                goTo(SCR_TOUCH_SETUP);
+                break;
+            } else if (buttonHit(BTN_ADM_BACK, tx, ty)) {
+                logAction("BACK (touch)");
+                saveGateSettings();
+                goTo(SCR_READY);
+                break;
+            }
+        }
+
+        if (changed) {
+            state.rearmMm = state.triggerMm + GATE_REARM_GAP_MM;
+            needsRepaint = true;
         } else if (!touchCalibrated && sinceEnter > AUTO_ADVANCE_MS) {
-            // No touch has ever been calibrated - keep the old timed demo
-            // behaviour so the screens can still be reviewed without touch.
-            logAction("COLLECT (timer - not calibrated)");
-            goTo(SCR_LABEL);
+            logAction("touch setup (timer - not calibrated)");
+            goTo(SCR_TOUCH_SETUP);
         }
         break;
     }
@@ -414,7 +648,7 @@ void loop() {
             picked = CAT_NON_METAL; pickedName = "bottle"; pick = true;
         } else if (touchPressed && buttonHit(BTN_LABEL_BACK, tx, ty)) {
             logAction("BACK (touch)");
-            goTo(SCR_HOME);
+            goTo(SCR_READY);
         }
 
         if (pick) {
@@ -515,16 +749,16 @@ void loop() {
         // nowhere to keep or discard *to* until the memory card is wired in.
         if (touchPressed && buttonHit(BTN_V_DISCARD, tx, ty)) {
             logAction("DISCARD (touch)");
-            goTo(SCR_HOME);
+            goTo(SCR_READY);
         } else if (touchPressed && buttonHit(BTN_V_AGAIN, tx, ty)) {
             logAction("RUN AGAIN (touch)");
             goTo(SCR_LABEL);
         } else if (touchPressed && buttonHit(BTN_V_KEEP, tx, ty)) {
             logAction("KEEP (touch)");
-            goTo(SCR_HOME);
+            goTo(SCR_READY);
         } else if (!touchCalibrated && sinceEnter > AUTO_ADVANCE_MS + 2000) {
             logAction("back to home (timer - not calibrated)");
-            goTo(SCR_HOME);
+            goTo(SCR_READY);
         }
         break;
     }
@@ -534,9 +768,9 @@ void loop() {
 
         if (touchPressed && buttonHit(BTN_MSG_OK, tx, ty)) {
             logAction("OK (touch)");
-            goTo(SCR_HOME);
+            goTo(SCR_READY);
         } else if (!touchCalibrated && sinceEnter > AUTO_ADVANCE_MS) {
-            goTo(SCR_HOME);
+            goTo(SCR_READY);
         }
         break;
     }

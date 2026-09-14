@@ -7,10 +7,6 @@
 // Button layouts. Defined once here so the drawing code and the touch code
 // can never disagree about where a button is.
 // ---------------------------------------------------------------------------
-const Button BTN_HOME_COLLECT  = {  30,  90, 200, 110, "COLLECT",     COL_ACCENT };
-const Button BTN_HOME_IDENTIFY = { 250,  90, 200, 110, "IDENTIFY",    COL_MUTED  };
-const Button BTN_HOME_SENS     = { 165, 246, 150,  46, "TOUCH SETUP", COL_MUTED  };
-
 const Button BTN_LABEL_EMPTY    = {  20,  90, 140, 120, "EMPTY",     COL_ACCENT };
 const Button BTN_LABEL_METAL    = { 170,  90, 140, 120, "METAL",     COL_ACCENT };
 const Button BTN_LABEL_NONMETAL = { 320,  90, 140, 120, "NON-METAL", COL_ACCENT };
@@ -31,6 +27,21 @@ const Button BTN_V_KEEP    = { 320, 260, 140, 56, "KEEP",    COL_OK     };
 const Button BTN_MSG_OK    = { 170, 260, 140, 56, "OK",      COL_ACCENT };
 
 const Button BTN_TOUCH_START = { 165, 246, 150, 56, "START", COL_ACCENT };
+
+const Button BTN_READY_COLLECT = {  14, 248, 104, 60, "COLLECT", COL_MUTED };
+const Button BTN_READY_SETUP   = { 362, 248, 104, 60, "SETUP",   COL_MUTED };
+
+const Button BTN_ADM_TRIG_DN  = { 330,  46, 64, 60, "-", COL_ACCENT };
+const Button BTN_ADM_TRIG_UP  = { 402,  46, 64, 60, "+", COL_ACCENT };
+const Button BTN_ADM_DWELL_DN = { 330, 118, 64, 60, "-", COL_ACCENT };
+const Button BTN_ADM_DWELL_UP = { 402, 118, 64, 60, "+", COL_ACCENT };
+const Button BTN_ADM_SCAN_DN  = { 330, 190, 64, 60, "-", COL_ACCENT };
+const Button BTN_ADM_SCAN_UP  = { 402, 190, 64, 60, "+", COL_ACCENT };
+const Button BTN_ADM_TOUCH    = { 170, 258, 160, 56, "TOUCH SETUP", COL_MUTED };
+const Button BTN_ADM_BACK     = {  14, 258, 140, 56, "BACK",        COL_MUTED };
+
+// Progress bar geometry, shared by the gate screens.
+static const int16_t GBAR_X = 20, GBAR_W = 440, GBAR_H = 26;
 
 // Stat box geometry on the scanning screen, shared by the full paint and the
 // live update so they line up exactly.
@@ -119,46 +130,6 @@ void drawBoot(Display& tft, const UiState& s) {
     }
 
     text(tft, BUILD_TAG, SCREEN_W / 2, 308, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
-}
-
-void drawHome(Display& tft, const UiState& s) {
-    tft.fillScreen(COL_BG);
-    drawStatusBar(tft, s, "READY");
-
-    drawHomeDistance(tft, s);
-
-    drawButton(tft, BTN_HOME_COLLECT, true);
-    drawButton(tft, BTN_HOME_IDENTIFY, false);
-
-    text(tft, s.modelTrained ? "detector loaded" : "no detector trained yet",
-         SCREEN_W / 2, 222, 2, 1,
-         s.modelTrained ? COL_OK : COL_WARN, COL_BG, MC_DATUM);
-
-    drawButton(tft, BTN_HOME_SENS, false);
-
-    // Which build is actually on the board. Kept on the home screen so it can
-    // be checked at any time rather than caught during start-up.
-    text(tft, BUILD_TAG, SCREEN_W / 2, 308, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
-}
-
-// Refreshed several times a second on the home screen, so you can wave a hand
-// in front of the sensor and watch the number follow it. Repaints only its own
-// strip, never the whole screen.
-void drawHomeDistance(Display& tft, const UiState& s) {
-    char buf[40];
-
-    tft.fillRect(90, 52, 300, 26, COL_BG);
-
-    if (!s.sensorWorking) {
-        snprintf(buf, sizeof(buf), "distance sensor not found");
-        text(tft, buf, SCREEN_W / 2, 64, 2, 1, COL_WARN, COL_BG, MC_DATUM);
-    } else if (s.sensorInRange) {
-        snprintf(buf, sizeof(buf), "distance   %u mm", s.distanceMm);
-        text(tft, buf, SCREEN_W / 2, 64, 2, 1, COL_OK, COL_BG, MC_DATUM);
-    } else {
-        snprintf(buf, sizeof(buf), "distance   nothing in range");
-        text(tft, buf, SCREEN_W / 2, 64, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
-    }
 }
 
 void drawLabel(Display& tft, const UiState& s) {
@@ -318,4 +289,227 @@ void drawTouchSetup(Display& tft, const UiState& s) {
          SCREEN_W / 2, 196, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
 
     drawButton(tft, BTN_TOUCH_START, true);
+}
+
+// ---------------------------------------------------------------------------
+// Everyday use at the gate
+//
+// Nobody is operating these. The distance sensor decides what happens; the
+// screen only says what is going on, in words readable from arm's length by
+// someone who has never been shown how it works.
+// ---------------------------------------------------------------------------
+
+// Fills a progress bar without repainting the whole thing, so nothing flickers:
+// the filled part and the empty part are drawn as two rectangles that never
+// overlap. Call drawGateBarFrame() once first for the outline.
+static void drawGateBarFrame(Display& tft, int16_t y) {
+    tft.drawRoundRect(GBAR_X, y, GBAR_W, GBAR_H, 6, COL_MUTED);
+}
+
+static void drawGateBarFill(Display& tft, int16_t y, float fraction, uint16_t colour) {
+    if (fraction < 0.0f) fraction = 0.0f;
+    if (fraction > 1.0f) fraction = 1.0f;
+
+    const int16_t inner = GBAR_W - 6;
+    const int16_t done  = (int16_t)(inner * fraction);
+
+    if (done > 0) {
+        tft.fillRect(GBAR_X + 3, y + 3, done, GBAR_H - 6, colour);
+    }
+    if (done < inner) {
+        tft.fillRect(GBAR_X + 3 + done, y + 3, inner - done, GBAR_H - 6, COL_BG);
+    }
+}
+
+void drawReady(Display& tft, const UiState& s) {
+    tft.fillScreen(COL_BG);
+    drawStatusBar(tft, s, "READY");
+
+    text(tft, "PLACE BAG IN TRAY", SCREEN_W / 2, 108, 4, 1, COL_TEXT, COL_BG, MC_DATUM);
+
+    drawReadyDistance(tft, s);
+
+    // Small, in the corners, and nothing in normal use needs them. Collection
+    // is for when data has been lost or the board has been reset; setup is for
+    // the numbers that decide when a scan starts.
+    drawButton(tft, BTN_READY_COLLECT, false);
+    drawButton(tft, BTN_READY_SETUP,   false);
+
+    text(tft, BUILD_TAG, SCREEN_W / 2, 308, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+}
+
+// Refreshed several times a second so the number follows a bag being moved
+// about. Repaints its own strip only.
+void drawReadyDistance(Display& tft, const UiState& s) {
+    char buf[40];
+
+    tft.fillRect(60, 142, 360, 68, COL_BG);
+
+    if (!s.sensorWorking) {
+        text(tft, "distance sensor not found", SCREEN_W / 2, 158, 2, 1,
+             COL_WARN, COL_BG, MC_DATUM);
+        text(tft, "scanning cannot start", SCREEN_W / 2, 186, 2, 1,
+             COL_MUTED, COL_BG, MC_DATUM);
+        return;
+    }
+
+    if (s.sensorInRange) {
+        text(tft, "tray", SCREEN_W / 2, 156, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+        snprintf(buf, sizeof(buf), "%u mm", s.distanceMm);
+        text(tft, buf, SCREEN_W / 2, 188, 4, 1, COL_ACCENT, COL_BG, MC_DATUM);
+    } else {
+        text(tft, "tray is clear", SCREEN_W / 2, 172, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+    }
+}
+
+void drawArmingFrame(Display& tft, const UiState& s) {
+    tft.fillScreen(COL_BG);
+    drawStatusBar(tft, s, "BAG DETECTED");
+
+    text(tft, "HOLD STILL", SCREEN_W / 2, 104, 4, 1, COL_WARN, COL_BG, MC_DATUM);
+    text(tft, "starting scan", SCREEN_W / 2, 140, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+
+    drawGateBarFrame(tft, 168);
+    text(tft, BUILD_TAG, SCREEN_W / 2, 308, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+}
+
+void drawArmingLive(Display& tft, const UiState& s) {
+    char buf[24];
+    float fraction = (s.dwellMs == 0) ? 1.0f : (float)s.phaseMs / (float)s.dwellMs;
+    drawGateBarFill(tft, 168, fraction, COL_WARN);
+
+    tft.fillRect(140, 214, 200, 30, COL_BG);
+    snprintf(buf, sizeof(buf), "%u mm", s.distanceMm);
+    text(tft, buf, SCREEN_W / 2, 228, 4, 1, COL_ACCENT, COL_BG, MC_DATUM);
+}
+
+void drawGateScanFrame(Display& tft, const UiState& s) {
+    tft.fillScreen(COL_BG);
+    drawStatusBar(tft, s, "SCANNING");
+
+    text(tft, "SCANNING", SCREEN_W / 2, 104, 4, 1, COL_TEXT, COL_BG, MC_DATUM);
+    text(tft, "do not move the bag", SCREEN_W / 2, 140, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+
+    drawGateBarFrame(tft, 168);
+
+    // No cancel button here either, for the same reason as the collection
+    // screen: the firmware has no cancel path, so every scan ends the same way.
+    text(tft, "finishes on its own", SCREEN_W / 2, 286, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+    text(tft, BUILD_TAG, SCREEN_W / 2, 308, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+}
+
+void drawGateScanLive(Display& tft, const UiState& s) {
+    char buf[24];
+    float fraction = (s.scanMs == 0) ? 1.0f : (float)s.phaseMs / (float)s.scanMs;
+    drawGateBarFill(tft, 168, fraction, COL_ACCENT);
+
+    uint32_t leftMs = (s.phaseMs >= s.scanMs) ? 0 : (s.scanMs - s.phaseMs);
+    tft.fillRect(140, 214, 200, 26, COL_BG);
+    snprintf(buf, sizeof(buf), "%u.%u s left",
+             (unsigned)(leftMs / 1000), (unsigned)((leftMs % 1000) / 100));
+    text(tft, buf, SCREEN_W / 2, 226, 2, 1, COL_MUTED, COL_BG, MC_DATUM);
+}
+
+// The result.
+//
+// This is the one screen that has to be read across a room by someone who is
+// not looking for it, so it is a block of colour with one word on it rather
+// than a layout. The colour is the message; the word confirms it.
+//
+// The footer stays dark through all three levels. It carries the two lines
+// that must stay readable while the red is flashing behind everything else.
+static const int16_t SIGNAL_H = 252;
+
+static void drawResultSignal(Display& tft, const UiState& s, bool bright) {
+    uint16_t ground, ink;
+
+    switch (s.verdict) {
+        case VERDICT_CLEAR:
+            ground = COL_OK;   ink = COL_BG;
+            break;
+        case VERDICT_UNSURE:
+            ground = COL_WARN; ink = COL_BG;
+            break;
+        default:
+            // Flashing: bright red with dark lettering, then dark red with
+            // light lettering. Both halves stay legible, so the word can be
+            // read at any moment rather than only half the time.
+            ground = bright ? COL_BAD   : COL_BAD_DIM;
+            ink    = bright ? COL_BG    : COL_TEXT;
+            break;
+    }
+
+    tft.fillRect(0, 0, SCREEN_W, SIGNAL_H, ground);
+    text(tft, verdictWord(s.verdict),   SCREEN_W / 2, 104, 4, 2, ink, ground, MC_DATUM);
+    text(tft, verdictAdvice(s.verdict), SCREEN_W / 2, 180, 2, 1, ink, ground, MC_DATUM);
+}
+
+void drawGateResult(Display& tft, const UiState& s) {
+    drawResultSignal(tft, s, true);
+
+    tft.fillRect(0, SIGNAL_H, SCREEN_W, SCREEN_H - SIGNAL_H, COL_BG);
+    drawGateResultPrompt(tft, s);
+
+    // The whole point of this line. Everything above it is invented, and
+    // anyone reading the screen is told so in the same glance. It comes off
+    // when a detector has been trained and tested, and not one moment before.
+    text(tft, "STAND-IN RESULT - NO DETECTOR TRAINED",
+         SCREEN_W / 2, 302, 2, 1, COL_WARN, COL_BG, MC_DATUM);
+}
+
+// Called a few times a second while a red result is showing. Repaints only the
+// coloured area, so the footer underneath never flickers and stays readable.
+void drawGateResultFlash(Display& tft, const UiState& s, bool bright) {
+    drawResultSignal(tft, s, bright);
+}
+
+// The bottom line changes once the machine starts waiting for the bag to be
+// taken away, so the rest of the screen does not have to be repainted.
+void drawGateResultPrompt(Display& tft, const UiState& s) {
+    tft.fillRect(40, SIGNAL_H + 8, 400, 26, COL_BG);
+
+    if (s.distanceMm < s.rearmMm && s.sensorInRange) {
+        text(tft, "REMOVE BAG TO CONTINUE", SCREEN_W / 2, SIGNAL_H + 20, 2, 1,
+             COL_ACCENT, COL_BG, MC_DATUM);
+    } else {
+        text(tft, "holding result", SCREEN_W / 2, SIGNAL_H + 20, 2, 1,
+             COL_MUTED, COL_BG, MC_DATUM);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SETUP
+//
+// Three numbers, changed by pressing. They live here rather than on a web page
+// because a web page would mean this board serving traffic on the same channel
+// it is trying to measure - see the note in docs/START-HERE.md.
+// ---------------------------------------------------------------------------
+static void drawAdminRow(Display& tft, int16_t y, const char* label,
+                         const char* value, const Button& down, const Button& up) {
+    text(tft, label, 20, y + 18, 2, 1, COL_MUTED, COL_BG, ML_DATUM);
+    text(tft, value, 20, y + 44, 4, 1, COL_TEXT, COL_BG, ML_DATUM);
+    drawButton(tft, down, false);
+    drawButton(tft, up,   false);
+}
+
+void drawAdmin(Display& tft, const UiState& s) {
+    char buf[24];
+
+    tft.fillScreen(COL_BG);
+    drawStatusBar(tft, s, "SETUP");
+
+    snprintf(buf, sizeof(buf), "%u mm", s.triggerMm);
+    drawAdminRow(tft, 46, "SCAN STARTS CLOSER THAN", buf,
+                 BTN_ADM_TRIG_DN, BTN_ADM_TRIG_UP);
+
+    snprintf(buf, sizeof(buf), "%u ms", s.dwellMs);
+    drawAdminRow(tft, 118, "BAG MUST HOLD STILL FOR", buf,
+                 BTN_ADM_DWELL_DN, BTN_ADM_DWELL_UP);
+
+    snprintf(buf, sizeof(buf), "%u.%u s", s.scanMs / 1000, (s.scanMs % 1000) / 100);
+    drawAdminRow(tft, 190, "A SCAN LASTS", buf,
+                 BTN_ADM_SCAN_DN, BTN_ADM_SCAN_UP);
+
+    drawButton(tft, BTN_ADM_BACK,  false);
+    drawButton(tft, BTN_ADM_TOUCH, false);
 }

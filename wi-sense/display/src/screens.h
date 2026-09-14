@@ -13,8 +13,6 @@ void drawButton(Display& tft, const Button& b, bool filled);
 
 // Full repaints. Safe between runs, never during an active capture.
 void drawBoot(Display& tft, const UiState& s);
-void drawHome(Display& tft, const UiState& s);
-void drawHomeDistance(Display& tft, const UiState& s);   // small strip only
 void drawLabel(Display& tft, const UiState& s);
 void drawSettings(Display& tft, const UiState& s);
 void drawVerdict(Display& tft, const UiState& s);
@@ -27,11 +25,27 @@ void drawTouchSetup(Display& tft, const UiState& s);
 void drawScanningFrame(Display& tft, const UiState& s);
 void drawScanningLive(Display& tft, const UiState& s);
 
-// --- button layouts, shared between drawing and touch handling ---
-extern const Button BTN_HOME_COLLECT;
-extern const Button BTN_HOME_IDENTIFY;
-extern const Button BTN_HOME_SENS;
+// --- everyday use at the gate ---
+//
+// Same split as above wherever something moves: a frame painted once, then a
+// small strip refreshed. Full repaints while a scan is running would cost
+// readings once the capture is real, so the habit is kept from the start.
+void drawReady(Display& tft, const UiState& s);
+void drawReadyDistance(Display& tft, const UiState& s);   // small strip only
 
+void drawArmingFrame(Display& tft, const UiState& s);
+void drawArmingLive(Display& tft, const UiState& s);      // progress + distance
+
+void drawGateScanFrame(Display& tft, const UiState& s);
+void drawGateScanLive(Display& tft, const UiState& s);    // progress + countdown
+
+void drawGateResult(Display& tft, const UiState& s);
+void drawGateResultFlash(Display& tft, const UiState& s, bool bright);
+void drawGateResultPrompt(Display& tft, const UiState& s);// bottom line only
+
+void drawAdmin(Display& tft, const UiState& s);
+
+// --- button layouts, shared between drawing and touch handling ---
 extern const Button BTN_LABEL_EMPTY;
 extern const Button BTN_LABEL_METAL;
 extern const Button BTN_LABEL_NONMETAL;
@@ -56,3 +70,20 @@ extern const Button BTN_V_KEEP;
 extern const Button BTN_MSG_OK;
 
 extern const Button BTN_TOUCH_START;
+
+// The only two buttons in everyday use, and they are deliberately small and in
+// the corners. Nothing has to be pressed to scan a bag. They cannot shrink much
+// further: TOUCH_MIN in theme.h is what a fingertip can reliably hit on a
+// resistive panel, and these are already at it.
+extern const Button BTN_READY_COLLECT;
+extern const Button BTN_READY_SETUP;
+
+// The SETUP screen. One row per setting, each with a minus and a plus.
+extern const Button BTN_ADM_TRIG_DN;
+extern const Button BTN_ADM_TRIG_UP;
+extern const Button BTN_ADM_DWELL_DN;
+extern const Button BTN_ADM_DWELL_UP;
+extern const Button BTN_ADM_SCAN_DN;
+extern const Button BTN_ADM_SCAN_UP;
+extern const Button BTN_ADM_TOUCH;
+extern const Button BTN_ADM_BACK;

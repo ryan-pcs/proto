@@ -15,6 +15,21 @@
 // counters instead. The drawing code does not change at all.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// What the machine tells the person at the gate.
+//
+// Three levels, not two, and the middle one is the important one. A detector
+// produces a confidence, never a yes or a no; forcing that into two buckets
+// means the cases it is least sure about get reported as though it were
+// certain. UNSURE is the machine admitting it does not know, which is the
+// honest answer often enough to be worth a colour of its own.
+// ---------------------------------------------------------------------------
+enum Verdict : uint8_t {
+    VERDICT_CLEAR = 0,   // green, steady   - the bag can go through
+    VERDICT_UNSURE,      // orange, steady  - worth a look inside
+    VERDICT_METAL        // red, flashing   - hand-search it
+};
+
 enum Category : uint8_t {
     CAT_EMPTY = 0,
     CAT_METAL,
@@ -30,7 +45,19 @@ enum ScreenId : uint8_t {
     SCR_SCANNING,
     SCR_VERDICT,
     SCR_MESSAGE,
-    SCR_TOUCH_SETUP
+    SCR_TOUCH_SETUP,
+
+    // --- everyday use at the gate ---
+    //
+    // These five are what the machine does when nobody is operating it. The
+    // distance sensor drives all of it: a bag arriving is what starts a scan,
+    // and nothing above needs pressing. The collection screens above are still
+    // reachable, but behind a small button rather than in front of you.
+    SCR_READY,          // nothing in the tray, waiting
+    SCR_ARMING,         // something is there - must hold still before scanning
+    SCR_GATE_SCAN,      // scanning a bag
+    SCR_GATE_RESULT,    // showing the answer, waiting for the bag to leave
+    SCR_ADMIN           // trigger settings, behind the SETUP button
 };
 
 struct UiState {
@@ -76,9 +103,38 @@ struct UiState {
     char messageTitle[24];
     char messageBody[64];
 
+    // --- everyday scanning at the gate ---
+    //
+    // The four settings are kept in the board's own flash and changed on the
+    // SETUP screen, because the right numbers depend on where the sensor ends
+    // up sitting relative to the tray. They cannot be guessed from a desk.
+    uint16_t triggerMm;      // closer than this and a bag is considered present
+    uint16_t rearmMm;        // must go back past this before the next scan
+    uint16_t dwellMs;        // how long it must hold still before scanning
+    uint16_t scanMs;         // how long one gate scan lasts
+    uint32_t phaseMs;        // time spent on the current screen, for progress
+
+    // The stand-in answer. It means NOTHING - see gateDecide() in ui_state.cpp.
+    Verdict verdict;
+
+    // How sure the detector is, 0-100. Today it is invented alongside the
+    // verdict above; when a real detector exists this is what it produces, and
+    // the two thresholds in theme.h are what turn it into one of the three
+    // levels. Keeping the number here now means only its source has to change
+    // later, not the screens.
+    uint8_t confidence;
+
     // --- is there a trained detector yet? ---
     bool modelTrained;
 };
+
+// Picks the stand-in verdict. Deliberately not random: it cycles green,
+// orange, red, so anyone watching can see it is not measuring anything.
+void gateDecide(UiState& s);
+
+// The word on the result screen, and the line under it saying what to do.
+const char* verdictWord(Verdict v);
+const char* verdictAdvice(Verdict v);
 
 const char* categoryName(Category c);
 const char* categoryFolder(Category c);

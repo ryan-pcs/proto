@@ -28,6 +28,53 @@ void simInit(UiState& s) {
     s.durationS  = 5;
     s.rateHz     = 20;
     s.modelTrained = false;      // stays false until a real model exists
+
+    // Starting points only. Every one of these is a guess until the sensor is
+    // mounted and a real bag is put in front of it; the SETUP screen exists so
+    // they can be found by trying rather than by arguing.
+    s.triggerMm = GATE_TRIGGER_MM_DEFAULT;
+    s.rearmMm   = GATE_TRIGGER_MM_DEFAULT + GATE_REARM_GAP_MM;
+    s.dwellMs   = GATE_DWELL_MS_DEFAULT;
+    s.scanMs    = GATE_SCAN_MS_DEFAULT;
+}
+
+// The stand-in verdict.
+//
+// This cycles green, orange, red, green... It is not random, and it is not a
+// measurement of anything - a random answer would look like a decision, and
+// someone would eventually believe it. A fixed cycle is obviously mechanical
+// to anyone who watches it more than twice.
+//
+// The shape of it is right even though the answer is not: a real detector will
+// produce the confidence, and the same two thresholds will turn it into the
+// same three levels. So when that day comes, only the first half of this
+// function is replaced - the screens and the thresholds stay as they are.
+//
+// The invented confidences below sit in the middle of each band on purpose, so
+// that nothing depends on exactly where the thresholds are while they are
+// still placeholders.
+void gateDecide(UiState& s) {
+    switch (s.verdict) {
+        case VERDICT_CLEAR:  s.verdict = VERDICT_UNSURE; s.confidence = (GATE_CONF_UNSURE + GATE_CONF_METAL) / 2; break;
+        case VERDICT_UNSURE: s.verdict = VERDICT_METAL;  s.confidence = (GATE_CONF_METAL + 100) / 2;              break;
+        default:             s.verdict = VERDICT_CLEAR;  s.confidence = GATE_CONF_UNSURE / 2;                     break;
+    }
+}
+
+const char* verdictWord(Verdict v) {
+    switch (v) {
+        case VERDICT_CLEAR:  return "CLEAR";
+        case VERDICT_UNSURE: return "CHECK";
+        default:             return "SEARCH";
+    }
+}
+
+const char* verdictAdvice(Verdict v) {
+    switch (v) {
+        case VERDICT_CLEAR:  return "bag can go through";
+        case VERDICT_UNSURE: return "not sure - look inside before it goes";
+        default:             return "hand-search this bag now";
+    }
 }
 
 // Start-up checks tick on one at a time so the screen has something to show.
