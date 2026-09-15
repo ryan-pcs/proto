@@ -156,8 +156,13 @@ swapping either board invalidates everything collected before the swap.
 | Flashed build | `build-28-tally` | current `transmitter/` source |
 
 `CSI_STAGE_A` is **1** in `display/platformio.ini`, so the capture is compiled
-in. Gate settings held in flash: trigger 200 mm, re-arm 350 mm, hold 1000 ms,
-scan 3000 ms. Those were **set by hand on the SETUP screen**, not the defaults
+in. Gate settings held in flash, **read off the board 2026-09-15**: trigger
+200 mm, re-arm 350 mm, hold 600 ms, scan 2000 ms. The handoff recorded hold
+1000 ms and scan 3000 ms, so those two have changed at some point — trust the
+board, not this line, and re-read the DIAG output if it matters. The tally on
+the card also read 15 earlier that day and 4 after the build-29 reflash, which
+is unexplained; nothing behind those numbers is real scan data yet. Trigger and
+re-arm were **set by hand on the SETUP screen**, not the defaults
 in `theme.h` (300/450/600/2500) — someone reading `theme.h` cold would get them
 wrong. They survived a reflash, which is how the settings screen and its
 storage were proven.

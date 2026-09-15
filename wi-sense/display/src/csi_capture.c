@@ -217,15 +217,35 @@ static void csi_output_task(void *argument)
     (void)argument;
     csi_frame_t frame;
     while (true) {
+        /* csi_output_busy has to mean "a row is being emitted right now", not
+         * "this task is alive". It used to be set here and then held across a
+         * 10ms blocking xQueueReceive, so it was true almost all the time.
+         * csiCaptureStop() polls every 1ms for a moment when nothing is busy
+         * and the queue is empty, so it could only ever succeed in the few
+         * microseconds between this flag being cleared and set again - it
+         * effectively never did. Every capture then reported
+         * CSI_CAPTURE_STOP_TIMEOUT with an empty queue, which the laptop
+         * records as receiver_capture_stopped=false and downgrades to a
+         * partial run.
+         *
+         * The flag is still raised BEFORE the queue is read, not after, so
+         * there is no instant where a frame has left the queue but nothing
+         * is marked busy - that gap would let csiCaptureStop() return while
+         * a row was still in flight. The receive is non-blocking for the
+         * same reason; the short delay below is what yields the CPU. */
         portENTER_CRITICAL(&csi_state_mux);
         csi_output_busy = true;
         portEXIT_CRITICAL(&csi_state_mux);
-        if (xQueueReceive(csi_queue, &frame, pdMS_TO_TICKS(10)) == pdTRUE) {
+        bool emitted = xQueueReceive(csi_queue, &frame, 0) == pdTRUE;
+        if (emitted) {
             emit_csi_frame(&frame);
         }
         portENTER_CRITICAL(&csi_state_mux);
         csi_output_busy = false;
         portEXIT_CRITICAL(&csi_state_mux);
+        if (!emitted) {
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
     }
 }
 

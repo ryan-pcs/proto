@@ -36,7 +36,7 @@ static const uint16_t TOUCH_THRESHOLD_DEFAULT = 150;
 
 // Shown at start-up and on the screen test, so you can tell at a glance which
 // build is actually running on the board. Change it whenever the code changes.
-#define BUILD_TAG "build-28-tally"
+#define BUILD_TAG "build-29-cleanstop"
 
 // ---------------------------------------------------------------------------
 // Colours, in the screen's 16-bit format.

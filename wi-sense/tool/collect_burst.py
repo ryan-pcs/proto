@@ -29,6 +29,10 @@ MAX_RATE_HZ = 1000
 MIN_CSI_COVERAGE_RATIO = 0.75
 RECEIVER_STARTUP_TIMEOUT_SECONDS = 20
 RECEIVER_CAPTURE_COMMAND_TIMEOUT_SECONDS = 3
+TRANSMITTER_STARTUP_TIMEOUT_SECONDS = 20
+# After the access point returns, give the receiver time to notice it was
+# disconnected before we start polling it for readiness.
+RECEIVER_REASSOCIATE_SETTLE_SECONDS = 1.5
 
 
 def safe_component(value, fallback):
@@ -97,6 +101,10 @@ def consume_receiver_lines(lines, header, writer, receiver_log):
             continue
         if text.startswith("CSI_DATA,"):
             fields = next(csv.reader([text]))
+            # Same header recovery as collect(); see the note there.
+            if header is None:
+                header = header_for(fields)
+                writer.writerow(header)
             if not valid_csi_fields(fields, header):
                 receiver_log.append(f"INVALID_CSI_DATA,{text}")
                 continue
@@ -118,6 +126,38 @@ def read_complete_lines(port, buffer):
         if text:
             lines.append(text)
     return lines, buffer
+
+
+def wait_for_transmitter(transmitter, timeout=TRANSMITTER_STARTUP_TIMEOUT_SECONDS):
+    """Wait until the transmitter's access point is actually up again.
+
+    Opening this port toggles DTR/RTS, which resets the board and takes the
+    CSI_TX network down with it; the receiver then has to re-associate. Start
+    the burst before that finishes and almost every packet fails to send, which
+    looks like a hardware fault rather than a race. Waiting here is what makes
+    a run's transmitter_failures count mean something.
+    """
+    deadline = time.monotonic() + timeout
+    seen = b""
+    probe_at = time.monotonic() + 3.0
+    probed = False
+    while time.monotonic() < deadline:
+        chunk = transmitter.read(min(transmitter.in_waiting, 1024) or 1)
+        if chunk:
+            seen += chunk
+        if b"READY,commands=" in seen or b"WiFi Initialized" in seen:
+            return True
+        if b"STATUS,IDLE" in seen or b"STATUS,RUNNING" in seen:
+            return True
+        if not probed and time.monotonic() >= probe_at:
+            # No banner, so the board probably did not reset. Ask it directly.
+            try:
+                transmitter.write(b"STATUS\n")
+                transmitter.flush()
+            except (OSError, serial.SerialException):
+                return False
+            probed = True
+    return False
 
 
 def open_receiver(port_name, requested_baud):
@@ -252,7 +292,16 @@ def collect(args):
     with serial.Serial(args.transmitter, args.baud, timeout=0.05) as transmitter, csv_path.open(
         "w", newline="", encoding="utf-8"
     ) as csv_file:
-        time.sleep(1)
+        print(f"Waiting for transmitter {args.transmitter} to bring up CSI_TX",
+              flush=True)
+        if not wait_for_transmitter(transmitter):
+            raise RuntimeError(
+                f"transmitter on {args.transmitter} never reported its access point "
+                "was up. Opening the port resets the board; check the cable and that "
+                "the transmitter firmware is flashed."
+            )
+        print("Transmitter ready.", flush=True)
+        time.sleep(RECEIVER_REASSOCIATE_SETTLE_SECONDS)
         transmitter.reset_input_buffer()
         receiver, actual_receiver_baud = open_receiver(args.receiver, args.receiver_baud)
         writer = csv.writer(csv_file)
@@ -315,12 +364,17 @@ def collect(args):
                         continue
                     if text.startswith("CSI_DATA,"):
                         fields = next(csv.reader([text]))
-                        if not valid_csi_fields(fields, header):
-                            receiver_log.append(f"INVALID_CSI_DATA,{text}")
-                            continue
+                        # Recover the header from the first data row if the
+                        # header line was missed. This must come BEFORE the
+                        # validity check: valid_csi_fields() returns False
+                        # whenever header is None, so a check-first ordering
+                        # rejects every row and records an empty capture.
                         if header is None:
                             header = header_for(fields)
                             writer.writerow(header)
+                        if not valid_csi_fields(fields, header):
+                            receiver_log.append(f"INVALID_CSI_DATA,{text}")
+                            continue
                         writer.writerow(fields)
                         csv_file.flush()
                         valid_count += 1
