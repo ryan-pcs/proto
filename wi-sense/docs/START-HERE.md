@@ -246,6 +246,7 @@ keeps only the second one. Decide before the card starts recording.
 
 | Document | What it answers |
 |---|---|
+| `docs/HANDOFF.md` | **Temporary.** Where the last session left off, and facts this file does not carry yet. Fold it in here and delete it. |
 | `docs/knowledge-base.md` | What the project contains and how the code is organised |
 | `docs/wiring-pin-map.md` | Which wire goes where, and why those pins |
 | `docs/tft-display-integration-brief.md` | What the screen is for, and the two-board decision |
