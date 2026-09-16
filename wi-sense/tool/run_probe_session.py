@@ -20,6 +20,7 @@ import json
 import random
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 CONDITIONS = ["empty", "metal", "sham"]
@@ -31,10 +32,14 @@ DEFAULT_BLOCKS = 8
 # A run must clear all four to count. These mirror the notes file exactly.
 MIN_COVERAGE = 0.9
 
+# Seconds between the operator pressing Enter and the capture starting, so
+# they can get out of the room. See leave_the_room().
+DEFAULT_LEAVE_SECONDS = 30
+
 DESCRIPTIONS = {
     "empty": "NOTHING on the stand (leave the stand itself in place)",
-    "metal": "the STACKED BRAKE DISCS on the stand",
-    "sham": "the CARDBOARD DISC on the stand",
+    "metal": "the METAL BUILD SHEET on the stand, on its marked spot and angle",
+    "sham": "the CARDBOARD SHEET on the stand, same spot and same angle",
 }
 
 
@@ -80,7 +85,35 @@ def check(meta):
     return problems
 
 
+def leave_the_room(seconds):
+    """Hold the capture so the operator can get out, and count it down aloud.
+
+    Not a nicety. Measured on this rig 2026-09-16, eight empty runs each time:
+
+        person seated still in the room   empty-vs-empty floor q95  1.647
+        room empty                                                  0.798
+
+    The pre-registered rule calls any floor above 1.0 INCONCLUSIVE, so an
+    operator sitting quietly in the room is on its own enough to make a whole
+    session unanswerable - no matter how large the real effect is. A person is
+    a large dielectric and the link is only 350 mm long.
+
+    Sitting still is not sufficient and was tested: the 1.647 above was
+    measured with the operator deliberately motionless.
+    """
+    if seconds <= 0:
+        return
+    for remaining in range(seconds, 0, -1):
+        print(f"\r           LEAVE THE ROOM - capture starts in {remaining:2d}s ",
+              end="", flush=True)
+        time.sleep(1)
+    print("\r           capturing - stay out until this run finishes ")
+
+
 def capture(args, block, condition):
+    # Inside capture() rather than at the prompt, so repeats at the end of a
+    # block get the same countdown as first attempts.
+    leave_the_room(args.leave_seconds)
     run_id = f"b{block}_{condition}"
     command = [
         sys.executable, str(Path(__file__).with_name("collect_burst.py")),
@@ -107,6 +140,11 @@ def main():
     parser.add_argument("--receiver-baud", default="921600")
     parser.add_argument("--duration-ms", type=int, default=20000)
     parser.add_argument("--rate-hz", type=int, default=20)
+    parser.add_argument("--leave-seconds", type=int, default=DEFAULT_LEAVE_SECONDS,
+                        help="Seconds to wait after Enter so the operator can leave "
+                             "the room before the capture starts. Defaults to "
+                             f"{DEFAULT_LEAVE_SECONDS}; see leave_the_room() for why "
+                             "a present operator invalidates a session. 0 disables.")
     parser.add_argument("--blocks", type=int, default=DEFAULT_BLOCKS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     args = parser.parse_args()
@@ -130,8 +168,19 @@ def main():
     for block, conditions in order:
         print(f"  block {block}: " + "  ->  ".join(conditions))
     print()
-    print("Everything is STATIONARY. Place the object, hands off, sit still.")
-    print("After you press enter there is ~5s before capture starts.")
+    print("Everything is STATIONARY. Nothing is passed through by hand.")
+    print()
+    print("  PER RUN:  place the object  ->  press Enter  ->  LEAVE THE ROOM")
+    print(f"            you get {args.leave_seconds}s to get out, counted down on screen,")
+    print("            then ~25s of capture. Come back when it says so.")
+    print()
+    print("You must be OUT for every capture, not merely still. Measured here:")
+    print("  operator seated motionless   empty-vs-empty floor q95  1.647  (fails)")
+    print("  room empty                                             0.798  (passes)")
+    print("Anything above 1.0 makes the whole session INCONCLUSIVE.")
+    print()
+    print("Place the sheet and the cardboard on the SAME marked spot at the SAME")
+    print("angle every time - a 1 cm shift is 30 degrees of phase at this link.")
     print("If a board or cable moves, STOP - the session restarts from block 1.")
     print()
 
